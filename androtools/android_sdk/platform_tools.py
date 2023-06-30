@@ -1,7 +1,5 @@
 import logging
 import shutil
-import subprocess
-import sys
 from enum import Enum
 from time import sleep
 
@@ -14,37 +12,65 @@ class DeviceType(Enum):
     TransportID = 2  #  Android 8.0 (API level 26) adb version 1.0.41
 
 
-class ADB:
-    def __init__(self):
-        self.adb_path = shutil.which("adb")
-        logging.debug(f"adb path: {self.adb_path}")
-        self.cmd_prefix = [self.adb_path]
+class ADB(CMD):
+    """仅仅执行命令，仅仅执行adb命令，不执行与设备无关的命令，比如:adb shell
+    请使用 Device。
+    Args:
+        CMD (_type_): _description_
+
+    Raises:
+        ValueError: _description_
+
+    Returns:
+        _type_: _description_
+    """
+
+    def __init__(self, path=shutil.which("adb")) -> None:
+        super().__init__(path)
+        self._cmd_target_device = []
+
+    def run_cmd(self, cmd: list):
+        assert isinstance(cmd, list)
+        logging.debug("run_cmd: %s", cmd)
+        return self._run(cmd)
+
+    def help(self):
+        output, _ = self.run_cmd([])
+        print(output)
 
     def set_target_device(self, device_name, device_type: DeviceType):
-        self.cmd_prefix = [self.adb_path]
+        assert isinstance(device_type, DeviceType)
         match (device_type):
-            case DeviceType.Default:
-                self.target_device = None
             case DeviceType.Serial:
-                self.cmd_prefix.append("-s")
-                self.cmd_prefix.append(device_name)
+                self._cmd_target_device.append("-s")
+                self._cmd_target_device.append(device_name)
             case DeviceType.TransportID:
-                self.cmd_prefix.append("-t")
-                self.cmd_prefix.append(device_name)
-            case _:
-                raise ValueError(f"unknown device type: {device_type}")
+                self._cmd_target_device.append("-t")
+                self._cmd_target_device.append(device_name)
 
-    def list_devices(self):
-        output, _ = self.run_cmd(["devices", "-l"])
+    def run_shell_cmd(self, cmd: list):
+        assert isinstance(cmd, list)
+        return self.run_cmd(self._cmd_target_device + ["shell"] + cmd)
+
+    def get_devices(self):
+        output, error = self.run_cmd(["devices", "-l"])
         devices = []
         transport_ids = []
 
-        for line in output[1:]:
+        lines = output.strip().splitlines()
+        if len(lines) <= 1:
+            return
+
+        for line in lines[1:]:
             arr = line.split()
             devices.append(arr[0])
             transport_ids.append(arr[-1].split(":"))
 
         return devices, transport_ids
+
+    def connect(self, host: str, port: int):
+        output, _ = self.run_cmd(["connect", f"{host}:{port}"])
+        return "Connection refused" not in output
 
     def kill_server(self):
         self.run_cmd(["kill-server"])
@@ -62,54 +88,12 @@ class ADB:
         self.kill_server()
         self.start_server()
 
-    def _build_cmds(self, cmd: str | list, is_shell: bool = False):
-        if isinstance(cmd, str):
-            cmd = [cmd]
-
-        full_cmd = self.cmd_prefix + cmd
-        if is_shell:
-            full_cmd = self.cmd_prefix + ["shell"] + cmd
-
-        return " ".join(full_cmd) if sys.platform.startswith("win") else full_cmd
-
-    def run_cmd(self, cmd: str | list, is_shell: bool = False):
-        cmd_list = self._build_cmds(cmd, is_shell)
-        logging.debug(cmd_list)
-        try:
-            adb_proc = subprocess.Popen(
-                cmd_list,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                shell=False,
-            )
-            output, error = adb_proc.communicate()
-            output = output.decode("utf-8")
-            error = error.decode("utf-8")
-
-            if adb_proc.returncode == 1:
-                logging.error(cmd_list)
-                return output, error
-
-            if len(output) == 0:
-                output = None
-            else:
-                output = [x.strip() for x in output.split("\n") if len(x.strip()) > 0]
-
-        except Exception as err:
-            logging.error(cmd_list)
-            logging.error(err)
-            raise err
-
-        return output, error
-
-    def run_shell_cmd(self, cmd: str | list):
-        return self.run_cmd(cmd, is_shell=True)
-
 
 class FastBoot(CMD):
     def __init__(self, path=shutil.which("fastboot")) -> None:
         super().__init__(path)
 
     def help(self):
-        print(self._run(f"{self.bin_path} -h")[0])
+        # NOTE -h 命令不支持 shell
+        result, _ = self._run([self.bin_path, "-h"])
+        print(result)
