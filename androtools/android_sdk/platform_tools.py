@@ -3,6 +3,8 @@ import shutil
 from enum import Enum
 from time import sleep
 
+import psutil
+
 from androtools.android_sdk import CMD
 
 
@@ -59,7 +61,7 @@ class ADB(CMD):
 
         lines = output.strip().splitlines()
         if len(lines) <= 1:
-            return
+            return None, None
 
         for line in lines[1:]:
             arr = line.split()
@@ -84,7 +86,12 @@ class ADB(CMD):
             logging.error(error)
         sleep(3)  # 等待3秒，等待模拟器启动
 
-    def restart_server(self):
+    def restart_server(self, force=False):
+        if not force:
+            for proc in psutil.process_iter():
+                name = proc.name()
+                if name in {"adb", "adb.exe"}:
+                    return
         self.kill_server()
         self.start_server()
 

@@ -187,20 +187,14 @@ class DeviceState:
 
 
 class DeviceManager:
-    def __init__(self):
+    def __init__(self, force: bool = False):
         self._adb = ADB()
-        self._adb.restart_server()
+        self._adb.restart_server(f)
         self._devices = {}
         self.update()
 
-    def get_all_devices(self):
-        return self._all_devices
-
     def get_total(self):
         return len(self._devices)
-
-    def get_busy_devices(self):
-        return self._busy_devices
 
     def get_free_device(self):
         for device in self._devices:
@@ -214,6 +208,8 @@ class DeviceManager:
 
     def update(self):
         devices, _ = self._adb.get_devices()
+        if devices is None:
+            return
 
         for name in devices:
             try:
