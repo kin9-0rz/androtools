@@ -189,7 +189,7 @@ class DeviceState:
 class DeviceManager:
     def __init__(self, force: bool = False):
         self._adb = ADB()
-        self._adb.restart_server(f)
+        self._adb.restart_server(force)
         self._devices = {}
         self.update()
 
