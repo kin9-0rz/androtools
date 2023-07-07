@@ -40,6 +40,10 @@ class ADB(CMD):
         output, _ = self.run_cmd([])
         print(output)
 
+    def _build_cmds(self, cmd: list):
+        assert isinstance(cmd, list)
+        return [self.bin_path] + self._cmd_target_device + cmd
+
     def set_target_device(self, device_name, device_type: DeviceType):
         assert isinstance(device_type, DeviceType)
         match (device_type):

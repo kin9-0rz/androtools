@@ -36,7 +36,14 @@ class Device:
         self.adb = ADB()
         self.adb.set_target_device(device_name, device_type)
 
+        counter = 0
         while self._is_offline():
+            if ":" in self.name:  # 如果是网络设备，不等待
+                raise RuntimeError("device offline")
+
+            counter += 1
+            if counter > 15:
+                raise RuntimeError("device offline")
             sleep(1)
 
         self.sdk = 0
