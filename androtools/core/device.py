@@ -47,9 +47,14 @@ class TRANSPORT(Enum):
 
 
 class Device:
-    def __init__(self, device_name, device_type: DeviceType = DeviceType.Serial):
+    def __init__(
+        self,
+        device_name,
+        device_type: DeviceType = DeviceType.Serial,
+        adb_path: str = None,
+    ):
         self.name = device_name
-        self.adb = ADB()
+        self.adb = ADB(adb_path)
         self.adb.set_target_device(device_name, device_type)
 
         counter = 0
@@ -78,7 +83,7 @@ class Device:
         # error: device 'emulator-5556' not found
         if f"error: device '{self.name}' not found" in error:
             logging.error(f"device '{self.name}' not found")
-            raise RuntimeError(f"device '{self.name}' not found")
+            return False
         return "device" not in output
 
     def _init_sdk(self):
@@ -187,6 +192,17 @@ class Device:
             if count > seconds:
                 break
 
+        while True:
+            if self.is_boot_completed():
+                break
+            sleep(1)
+        sleep(3)
+
+    def is_boot_completed(self) -> bool:
+        """判断设备是否处于开机状态"""
+        output, _ = self.adb.run_shell_cmd(["getprop", "sys.boot_completed"])
+        return "1" in output
+
     # ------------------------------ dumpsys command ----------------------------- #
 
     def dumpsys_window_windows(self):
@@ -230,16 +246,16 @@ class DeviceState:
 
 
 class DeviceManager:
-    def __init__(self, force: bool = False):
-        self._adb = ADB()
+    def __init__(self, adb_path: str = None, force: bool = False):
+        self._adb = ADB(adb_path)
         self._adb.restart_server(force)
         self._devices = {}
         self.update()
 
-    def get_total(self):
+    def get_total(self) -> int:
         return len(self._devices)
 
-    def get_free_device(self):
+    def get_free_device(self) -> Device | None:
         for device in self._devices:
             if self._devices[device] == DeviceState.Free:
                 self._devices[device] = DeviceState.Busy

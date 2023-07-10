@@ -1,4 +1,5 @@
 import logging
+import os
 import shutil
 import subprocess
 from enum import Enum
@@ -11,8 +12,9 @@ class SubSubCommand(Enum):
 
 
 class CMD:
-    def __init__(self, path) -> None:
-        self.bin_path = shutil.which(path)
+    def __init__(self, path: str) -> None:
+        assert isinstance(path, str)
+        self.bin_path = path if os.path.exists(path) else shutil.which(path)
 
     def _build_cmds(self, cmd: list):
         return [self.bin_path] + cmd

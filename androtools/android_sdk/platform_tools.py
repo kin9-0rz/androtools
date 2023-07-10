@@ -27,7 +27,9 @@ class ADB(CMD):
         _type_: _description_
     """
 
-    def __init__(self, path=shutil.which("adb")) -> None:
+    def __init__(self, path: str = None) -> None:
+        if path is None:
+            path = shutil.which("adb")
         super().__init__(path)
         self._cmd_target_device = []
 
@@ -59,7 +61,11 @@ class ADB(CMD):
         return self.run_cmd(self._cmd_target_device + ["shell"] + cmd)
 
     def get_devices(self):
-        output, error = self.run_cmd(["devices", "-l"])
+        self.run_cmd(["devices", "-l"])
+        sleep(1)
+        self.run_cmd(["devices", "-l"])
+        sleep(1)
+        output, _ = self.run_cmd(["devices", "-l"])
         devices = []
         transport_ids = []
 
