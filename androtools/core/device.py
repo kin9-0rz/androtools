@@ -75,17 +75,21 @@ class Device:
 
     # ---------------------------------- adb 命令 ---------------------------------- #
 
-    def install_apk(self, apk_path):
+    def install_apk(self, apk_path: str):
+        """安装apk
+
+        Args:
+            apk_path (str): apk 路径
+
+        Returns:
+            tuple: (is_success, output)
+        """
         cmd = ["install", "-r", "-g", "-t", apk_path]
         if self.sdk < 26:
             cmd = ["install", "-r", "-t", apk_path]
-        output, error = self.adb.run_cmd(cmd)
-        if "Success" in output:
-            return True
-        logging.error("".join(cmd))
-        logging.error(output)
-        logging.error(error)
-        return False
+        output, _ = self.adb.run_cmd(cmd)
+
+        return "Success" in output, output
 
     def uninstall_apk(self, package_name):
         cmd = ["uninstall", package_name]
