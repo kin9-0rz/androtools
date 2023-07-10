@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "androtools"
-version = "0.1.2"
+version = "0.1.3"
 classifiers = [
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
@@ -10,7 +10,8 @@ classifiers = [
     "Natural Language :: Chinese (Simplified)",
     "Development Status :: 3 - Alpha",
 ]
-description = ""
+description = "一个对Android SDK相关的命令封装的库"
+repository = "https://gitee.com/kin9-0rz/apkutils"
 authors = ["kin9-0rz <kin9-0rz@outlook.com>"]
 license = "MIT"
 readme = "README.md"
