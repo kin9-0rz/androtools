@@ -1,4 +1,5 @@
 import logging
+from enum import Enum
 from time import sleep
 
 from androtools.android_sdk.platform_tools import ADB, DeviceType
@@ -28,6 +29,21 @@ Android_API_MAP = {
     33: ("Android 13", "TIRAMISU"),
     34: ("Android 14", "Upside Down Cake"),
 }
+
+
+class STATE(Enum):
+    DEVICE = "device"
+    RECOVERY = "recovery"
+    RESCUE = "rescue"
+    SIDELOADING = "sideload"
+    BOOTLOADER = "bootloader"
+    DISCONNECT = "disconnect"
+
+
+class TRANSPORT(Enum):
+    USB = "usb"
+    LOCAL = "local"
+    ANY = "any"
 
 
 class Device:
@@ -110,6 +126,14 @@ class Device:
         logging.error(output)
         logging.error(error)
 
+    def wait_for(self, state: STATE, transport: TRANSPORT = TRANSPORT.ANY):
+        cmd = "wait-for"
+        if transport != TRANSPORT.ANY:
+            cmd += f"-{transport.value}"
+        cmd += f"-{state}"
+        output, error = self.adb.run_cmd([cmd])
+        return output, error
+
     # ------------------------------- am 命令，控制应用 ------------------------------ #
 
     def start_activity(self, package_name, activity_name):
@@ -153,6 +177,16 @@ class Device:
         cmd = ["kill", str(pid)]
         self.adb.run_shell_cmd(cmd)
 
+    def reboot(self, seconds: int = 60):
+        self.adb.run_shell_cmd(["reboot"])
+        self.wait_for(STATE.DEVICE)
+
+        count = 0
+        while self._is_offline():
+            count += 1
+            if count > seconds:
+                break
+
     # ------------------------------ dumpsys command ----------------------------- #
 
     def dumpsys_window_windows(self):
@@ -170,7 +204,6 @@ class Device:
         sleep(1)
 
     def home(self):
-        # adb shell input keyevent KEYCODE_HOME
         cmd = ["input", "keyevent", "KEYCODE_HOME"]
         self.adb.run_shell_cmd(cmd)
         sleep(1)
@@ -181,7 +214,6 @@ class Device:
         sleep(1)
 
     def back(self):
-        # adb shell input keyevent KEYCODE_BACK
         cmd = ["input", "keyevent", "KEYCODE_BACK"]
         self.adb.run_shell_cmd(cmd)
         sleep(1)
