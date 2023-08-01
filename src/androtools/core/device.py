@@ -2,6 +2,8 @@ import logging
 from enum import Enum
 from time import sleep
 
+from func_timeout import FunctionTimedOut, func_timeout
+
 from androtools.android_sdk.platform_tools import ADB, DeviceType
 
 # API等级，SDK，CodeName
@@ -83,7 +85,7 @@ class Device:
         # error: device 'emulator-5556' not found
         if f"error: device '{self.name}' not found" in error:
             logging.error(f"device '{self.name}' not found")
-            return False
+            return True
         return "device" not in output
 
     def _init_sdk(self):
@@ -93,6 +95,14 @@ class Device:
         elif isinstance(output, list):
             self.sdk = int(output[0])
         return self.sdk
+
+    def is_ok(self):
+        try:
+            # 点击HOME键，超过5秒没反应
+            func_timeout(5, self.home)
+        except FunctionTimedOut:
+            return False
+        return True
 
     # ---------------------------------- adb 命令 ---------------------------------- #
 
@@ -172,6 +182,14 @@ class Device:
     def pidof(self, process_name):
         output, _ = self.adb.run_shell_cmd(["pidof", process_name])
         output = output.strip()
+        if "pidof: not found" in output:
+            output, _ = self.adb.run_shell_cmd(["ps"])
+            lines = output.splitlines()
+            for line in lines:
+                parts = line.split()
+                if parts[-1] == process_name:
+                    return int(parts[1])
+            return
         return None if output == "" else int(output)
 
     def killall(self, process_name):

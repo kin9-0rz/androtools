@@ -99,6 +99,8 @@ class ADB(CMD):
     def restart_server(self, force=False):
         if not force:
             for proc in psutil.process_iter():
+                if 'terminated' in str(proc):
+                    continue
                 name = proc.name()
                 if name in {"adb", "adb.exe"}:
                     return

@@ -9,7 +9,7 @@ install: clean ## 安装包
 	@poetry run apkutils --help
 
 test: ## 跑测试
-	poetry run pytest
+	pytest
 build: ## build
 	rm -rf dist
-	poetry build -f wheel
+	rye build -f wheel
