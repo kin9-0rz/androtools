@@ -6,12 +6,12 @@ from androtools.core.device import Device, DeviceManager
 
 @pytest.fixture
 def device():
-    device_names, _ = ADB().get_devices()
+    device_names = ADB().get_devices()
     if device_names is None:
         return
     assert isinstance(device_names, list)
     assert len(device_names) >= 1
-    return Device(device_names[0])
+    return Device(device_names[0][0])
 
 
 def test_ls(device: Device):

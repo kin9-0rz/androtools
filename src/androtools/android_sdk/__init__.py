@@ -1,8 +1,9 @@
-import logging
 import os
 import shutil
 import subprocess
 from enum import Enum
+
+from loguru import logger
 
 
 class SubSubCommand(Enum):
@@ -47,7 +48,7 @@ class CMD:
             error = error.decode("utf-8")
 
             if adb_proc.returncode == 1:
-                logging.error(cmd_list)
+                logger.error(cmd_list)
                 return output, error
 
             if len(output) == 0:
@@ -56,8 +57,8 @@ class CMD:
                 output = [x.strip() for x in output.split("\n") if len(x.strip()) > 0]
 
         except Exception as err:
-            logging.error(cmd_list)
-            logging.error(err)
+            logger.error(cmd_list)
+            logger.error(err)
             raise err
 
         return output, error

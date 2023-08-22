@@ -10,6 +10,7 @@
 click==8.1.6
 func-timeout==4.3.5
 iniconfig==2.0.0
+loguru==0.7.0
 packaging==23.1
 pluggy==1.2.0
 psutil==5.9.5

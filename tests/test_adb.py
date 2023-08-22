@@ -1,5 +1,4 @@
 import pytest
-
 from androtools.android_sdk.platform_tools import ADB
 
 
@@ -10,16 +9,17 @@ def adb():
 
 def test_run_cmd(adb):
     output, _ = adb.run_cmd(["devices"])
+    print(output)
     assert "List of devices attached" in output
 
 
-def test_run_shell_cmd(adb):
+def test_run_shell_cmd(adb: ADB):
     output, _ = adb.run_shell_cmd(["ps"])
     assert "zygote" in output
 
 
-def test_get_devices(adb):
-    devices, _ = adb.get_devices()
+def test_get_devices(adb: ADB):
+    devices = adb.get_devices()
     assert len(devices) >= 1
 
 

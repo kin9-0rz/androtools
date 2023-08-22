@@ -1,9 +1,9 @@
-import logging
 import shutil
 from enum import Enum
 from time import sleep
 
 import psutil
+from loguru import logger
 
 from androtools.android_sdk import CMD
 
@@ -35,12 +35,12 @@ class ADB(CMD):
 
     def run_cmd(self, cmd: list):
         assert isinstance(cmd, list)
-        logging.debug("run_cmd: %s", cmd)
+        logger.debug(f"run_cmd : {cmd}")
         return self._run(cmd)
 
     def help(self):
         output, _ = self.run_cmd([])
-        print(output)
+        logger.debug(output)
 
     def _build_cmds(self, cmd: list):
         assert isinstance(cmd, list)
@@ -61,16 +61,16 @@ class ADB(CMD):
         return self.run_cmd(self._cmd_target_device + ["shell"] + cmd)
 
     def get_devices(self):
+        devices = []
+
         while True:
             self.run_cmd(["devices", "-l"])
-            sleep(1)
             self.run_cmd(["devices", "-l"])
-            sleep(1)
 
             output, _ = self.run_cmd(["devices", "-l"])
             output = output.strip()
             if output == "List of devices attached":
-                sleep(3)
+                sleep(0.5)
                 continue
 
             if "127.0.0.1:" not in output:
@@ -80,9 +80,8 @@ class ADB(CMD):
 
         lines = output.strip().splitlines()
         if len(lines) <= 1:
-            return None, None
+            return devices
 
-        devices = []
         for line in lines[1:]:
             arr = line.split()
             name = arr[0]
@@ -102,10 +101,10 @@ class ADB(CMD):
     def start_server(self):
         output, error = self.run_cmd(["start-server"])
         if "daemon started successfully" in error:
-            logging.debug("adb-server start success")
+            logger.debug("adb-server start success")
         else:
-            logging.error(output)
-            logging.error(error)
+            logger.error(output)
+            logger.error(error)
         sleep(3)  # 等待3秒，等待模拟器启动
 
     def restart_server(self, force=True):
@@ -127,7 +126,7 @@ class FastBoot(CMD):
     def help(self):
         # NOTE -h 命令不支持 shell
         result, _ = self._run([self.bin_path, "-h"])
-        print(result)
+        logger.debug(result)
 
     def devices(self, flag=False):
         """List devices in bootloader"""
@@ -135,20 +134,20 @@ class FastBoot(CMD):
         if flag:
             _cmd.append("-l")
         result, _ = self._run(_cmd)
-        print(result)
+        logger.debug(result)
 
     def getvar(self, key="all"):
         """获取设备和分区信息"""
         _cmd = [self.bin_path, "getvar", key]
         result, _ = self._run(_cmd)
-        print(result)
+        logger.debug(result)
 
     def reboot(self, bootloader=False):
         _cmd = [self.bin_path, "reboot"]
         if bootloader:
             _cmd.append("bootloader")
         result, _ = self._run(_cmd)
-        print(result)
+        logger.debug(result)
 
     def boot(self):
         pass
@@ -161,7 +160,7 @@ class FastBoot(CMD):
             "flashing",
         ]
         result, _ = self._run(_cmd)
-        print(result)
+        logger.debug(result)
 
     def unlock(self):
         pass
@@ -171,7 +170,7 @@ class FastBoot(CMD):
         """Flash all partitions from an update.zip package."""
         _cmd = [self.bin_path, "update", zip_path]
         result, _ = self._run(_cmd)
-        print(result)
+        logger.debug(result)
 
     def flash(self, partition, filename):
         """
@@ -180,7 +179,7 @@ class FastBoot(CMD):
         """
         _cmd = [self.bin_path, "flash", partition, filename]
         result, _ = self._run(_cmd)
-        print(result)
+        logger.debug(result)
 
     def flashall(self):
         """
@@ -190,4 +189,4 @@ class FastBoot(CMD):
         """
         _cmd = [self.bin_path, "flashall"]
         result, _ = self._run(_cmd)
-        print(result)
+        logger.debug(result)
