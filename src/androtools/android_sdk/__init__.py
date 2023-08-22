@@ -62,6 +62,7 @@ class CMD:
 
         return output, error
 
+    # TODO 这种方式感觉不大好，调用过于繁琐，最好能够直接使用。
     def run_subcmd(self, scmd: SubSubCommand, args: list):
         assert isinstance(scmd, SubSubCommand)
         return self._run(scmd.value + args)

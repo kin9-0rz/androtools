@@ -12,4 +12,4 @@ test: ## 跑测试
 	pytest
 build: ## build
 	rm -rf dist
-	rye build -f wheel
+	rye build --wheel

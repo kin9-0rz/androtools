@@ -48,6 +48,15 @@ class TRANSPORT(Enum):
     ANY = "any"
 
 
+class G_STATE(Enum):
+    """使用 get_state 方法获取的状态。"""
+
+    DEVICE = "device"
+    OFFLINE = "offline"
+    BOOTLOADER = "bootloader"
+    NOFOUND = "nofound"
+
+
 class Device:
     def __init__(
         self,
@@ -59,15 +68,10 @@ class Device:
         self.adb = ADB(adb_path)
         self.adb.set_target_device(device_name, device_type)
 
-        counter = 0
-        while self._is_offline():
-            if ":" in self.name:  # 如果是网络设备，不等待
-                raise RuntimeError("device offline")
-
-            counter += 1
-            if counter > 15:
-                raise RuntimeError("device offline")
-            sleep(1)
+        # 设备初始化，则表示设备一定存在
+        state = self.get_state()
+        if self.get_state() != G_STATE.DEVICE:
+            raise RuntimeError(f"Device is {state.value}")
 
         self.sdk = 0
         self._init_sdk()
@@ -78,15 +82,25 @@ class Device:
     def __str__(self) -> str:
         return f"{self.name}-{self.android_version}({self.sdk})"
 
-    def _is_offline(self):
+    def get_state(self):
         output, error = self.adb.run_cmd(["get-state"])
         # output: ['device']
         # error: error: device offline
         # error: device 'emulator-5556' not found
-        if f"error: device '{self.name}' not found" in error:
-            logging.error(f"device '{self.name}' not found")
-            return True
-        return "device" not in output
+
+        output = "".join(output) + error
+
+        if "not found" in error:
+            return G_STATE.NOFOUND
+
+        if "device" in output:
+            return G_STATE.DEVICE
+
+        if "offline" in output:
+            return G_STATE.DEVICE
+
+        if "bootloader" in output:
+            return G_STATE.BOOTLOADER
 
     def _init_sdk(self):
         output, error = self.adb.run_shell_cmd(["getprop", "ro.build.version.sdk"])
@@ -202,19 +216,18 @@ class Device:
 
     def reboot(self, seconds: int = 60):
         self.adb.run_shell_cmd(["reboot"])
-        self.wait_for(STATE.DEVICE)
-
-        count = 0
-        while self._is_offline():
-            count += 1
-            if count > seconds:
-                break
-
         while True:
-            if self.is_boot_completed():
+            devices = self.adb.get_devices()
+            flag = False
+            for item in devices:
+                if item[0] == self.name and item[1] == "device":
+                    flag = True
+                    break
+
+            if flag:
                 break
+
             sleep(1)
-        sleep(3)
 
     def is_boot_completed(self) -> bool:
         """判断设备是否处于开机状态"""
@@ -264,11 +277,42 @@ class DeviceState:
 
 
 class DeviceManager:
-    def __init__(self, adb_path: str = None, force: bool = False):
+    def __init__(self, adb_path: str = None):
         self._adb = ADB(adb_path)
-        self._adb.restart_server(force)
         self._devices = {}
+        self._init()
+
+    def _init(self):
+        self._devices.clear()
+        count = 0
+        while count < 5:
+            count += 1
+            if self._check_devices():
+                break
         self.update()
+
+    def _check_devices(self):
+        devices = self._adb.get_devices()
+        if devices is None:
+            return
+
+        flag = True
+        for item in devices:
+            if item is None:
+                continue
+
+            if item[1] == "offline":
+                flag = False
+                break
+            if ":" in item:
+                flag = False
+                break
+
+        if flag:
+            return flag
+
+        self._adb.restart_server(True)
+        return flag
 
     def get_total(self) -> int:
         return len(self._devices)
@@ -281,18 +325,24 @@ class DeviceManager:
                 return device
 
     def free_busy_device(self, device: Device):
+        if device not in self._devices:
+            return
         self._devices[device] = DeviceState.Free
 
     def update(self):
-        devices, _ = self._adb.get_devices()
+        devices = self._adb.get_devices()
         if devices is None:
             return
 
-        for name in devices:
+        for item in devices:
+            name = item[0]
+            if item[1] != "device":
+                logging.error(f"device {name} is offline.")
+                continue
             try:
                 device = Device(name)
             except Exception:
-                logging.error(f"device {name} not found")
+                logging.error(f"device {name} not found", stack_info=True)
                 continue
             if device in self._devices:
                 logging.error(f"device {name} already exists")
