@@ -5,32 +5,7 @@ from func_timeout import FunctionTimedOut, func_timeout
 from loguru import logger
 
 from androtools.android_sdk.platform_tools import ADB, DeviceType
-
-# API等级，SDK，CodeName
-# https://apilevels.com/
-Android_API_MAP = {
-    14: ("Android 4.0.1", "Ice Cream Sandwich"),
-    15: ("Android 4.0.3", "Ice Cream Sandwich"),
-    16: ("Android 4.1", "Jelly Bean"),
-    17: ("Android 4.2", "Jelly Bean"),
-    18: ("Android 4.3", "Jelly Bean"),
-    19: ("Android 4.4", "KitKat"),
-    20: ("Android 4.4w", "KitKat"),
-    21: ("Android 5.0", "Lollipop"),
-    22: ("Android 5.1", "Lollipop"),
-    23: ("Android 6", "Marshmallow"),
-    24: ("Android 7.0", "Nougat"),
-    25: ("Android 7.1", "Nougat"),
-    26: ("Android 8.0", "Oreo"),
-    27: ("Android 8.1", "Oreo"),
-    28: ("Android 9", "Pie"),
-    29: ("Android 10", "Quince Tart"),
-    30: ("Android 11", "Red Velvet Cake"),
-    31: ("Android 12", "Snow Cone"),
-    32: ("Android 12L", "Snow Cone"),
-    33: ("Android 13", "TIRAMISU"),
-    34: ("Android 14", "Upside Down Cake"),
-}
+from androtools.core import Android_API_MAP, KeyEvent
 
 
 class STATE(Enum):
@@ -285,25 +260,30 @@ class Device:
         self._run_shell_cmd(cmd)
         sleep(0.5)
 
-    def home(self):
-        cmd = ["input", "keyevent", "KEYCODE_HOME"]
+    def long_press(self, x, y):
+        """长按"""
+        self.swipe(x, y, x, y, 750)
+
+    def swipe(self, x1, y1, x2, y2, time=None):
+        cmd = ["input", "swipe", str(x1), str(y1), str(x2), str(y2)]
+        if time:
+            cmd.append(str(time))
         self._run_shell_cmd(cmd)
         sleep(0.5)
 
-    def swipe(self, x1, y1, x2, y2):
-        cmd = ["input", "swipe", str(x1), str(y1), str(x2), str(y2)]
+    def input_keyevent(self, keyevent: KeyEvent):
+        cmd = ["input", "keyevent", keyevent.value]
         self._run_shell_cmd(cmd)
         sleep(0.5)
+
+    def home(self):
+        self.input_keyevent(KeyEvent.KEYCODE_HOME)
 
     def back(self):
-        cmd = ["input", "keyevent", "KEYCODE_BACK"]
-        self._run_shell_cmd(cmd)
-        sleep(0.5)
+        self.input_keyevent(KeyEvent.KEYCODE_BACK)
 
-    # TODO 清理最近的任务，有可能高级版本才支持
-    # adb shell input keyevent KEYCODE_APP_SWITCH
-    # && sleep 1 &&
-    # adb shell input keyevent KEYCODE_DEL 在5.1的雷电模拟器中无效
+    def delete(self):
+        self.input_keyevent(KeyEvent.KEYCODE_DEL)
 
 
 class DeviceState:
