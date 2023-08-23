@@ -5,7 +5,7 @@ from func_timeout import FunctionTimedOut, func_timeout
 from loguru import logger
 
 from androtools.android_sdk.platform_tools import ADB, DeviceType
-from androtools.core import Android_API_MAP, KeyEvent
+from androtools.core.constants import Android_API_MAP, KeyEvent
 
 
 class STATE(Enum):
