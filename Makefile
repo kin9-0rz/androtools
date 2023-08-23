@@ -13,3 +13,5 @@ test: ## 跑测试
 build: ## build
 	rm -rf dist
 	rye build --wheel
+publish: ## 发布
+	rye publish
