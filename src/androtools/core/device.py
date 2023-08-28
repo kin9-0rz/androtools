@@ -272,7 +272,7 @@ class Device:
         sleep(0.5)
 
     def input_keyevent(self, keyevent: KeyEvent):
-        cmd = ["input", "keyevent", keyevent.value]
+        cmd = ["input", "keyevent", str(keyevent.value)]
         self._run_shell_cmd(cmd)
         sleep(0.5)
 
