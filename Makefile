@@ -3,15 +3,10 @@
 help: ## 帮助
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m\033[0m\n\nTargets:\n"} /^[+a-zA-Z_-]+:.*?##/ { printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
-install: clean ## 安装包
-	@poetry install
-	@poetry run apkutils --version
-	@poetry run apkutils --help
-
 test: ## 跑测试
 	pytest
 build: ## build
 	rm -rf dist
 	rye build --wheel
-publish: ## 发布
+publish:	build ## 发布
 	rye publish
