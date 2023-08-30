@@ -103,8 +103,13 @@ class ADB(CMD):
         if "daemon started successfully" in error:
             logger.debug("adb-server start success")
         else:
-            logger.error(output)
-            logger.error(error)
+            logger.error("=" * 80)
+            logger.error("output:\n" + output)
+            logger.error("error:\n" + error, stack_info=True)
+            logger.error("=" * 80)
+            sleep(1)
+            self.start_server()
+
         sleep(3)  # 等待3秒，等待模拟器启动
 
     def restart_server(self, force=True):
