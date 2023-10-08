@@ -46,6 +46,7 @@ class ADB(CMD):
         assert isinstance(cmd, list)
         return [self.bin_path] + self._cmd_target_device + cmd
 
+    # TODO 不需要，对于adb命令来说，接收任意参数才对的
     def set_target_device(self, device_name, device_type: DeviceType):
         assert isinstance(device_type, DeviceType)
         match (device_type):

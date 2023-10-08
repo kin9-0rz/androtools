@@ -1,7 +1,6 @@
 import os
 
 import pytest
-
 from androtools.android_sdk.build_tools import AAPT2
 
 fixtures_path = os.path.join(os.path.dirname(__file__), "fixtures")

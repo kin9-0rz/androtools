@@ -5,7 +5,7 @@ from func_timeout import FunctionTimedOut, func_timeout
 from loguru import logger
 
 from androtools.android_sdk.platform_tools import ADB, DeviceType
-from androtools.core.constants import Android_API_MAP, KeyEvent
+from androtools.core.constants import Android_API_MAP, DeviceState, KeyEvent
 
 
 class STATE(Enum):
@@ -30,6 +30,31 @@ class G_STATE(Enum):
     OFFLINE = "offline"
     BOOTLOADER = "bootloader"
     NOFOUND = "nofound"
+
+
+# adb -s emulator-5554 emu avd id
+# Pixel_4_XL_API_22
+# OK
+# ❯ adb -s emulator-5554 emu avd name
+# Pixel_4_XL_API_22
+# NOTE 设备重新启动之后，端口有可能会发生。
+# 启动模拟器，然后，通过 adb devices -l 获取所有的模拟器信息。
+# 在通过 adb -s emulator-5554 emu avd id，来重新映射模拟器序列号。
+class DeviceInfo:
+    """设备信息，通过 adb devices -l 获取以下信息"""
+
+    name: str  # 设备名，用于启动模拟器
+    serial: str  # 设备序列号，用于 adb
+    transport_id: str  # 设备传输ID，用于 adb
+    model: str  # Android_SDK_built_for_x86 2209129SC
+    product: str  # sdk_google_phone_x86 ziyi
+    device: str  # generic_x86 ziyi
+
+
+# TODO 杀死模拟器的方式
+# @Pixel_XL_API_30，获取进程pid，杀死pid。
+# 再通过emulator来启动。
+# 雷电模拟器的启动方式不一样。
 
 
 class Device:
@@ -284,11 +309,6 @@ class Device:
 
     def delete(self):
         self.input_keyevent(KeyEvent.KEYCODE_DEL)
-
-
-class DeviceState:
-    Free = 0
-    Busy = 1
 
 
 class DeviceManager:

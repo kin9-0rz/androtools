@@ -5,8 +5,10 @@ help: ## 帮助
 
 test: ## 跑测试
 	pytest
+
 build: ## build
 	rm -rf dist
 	rye build --wheel
-publish:	build ## 发布
+
+publish: build ## 发布
 	rye publish

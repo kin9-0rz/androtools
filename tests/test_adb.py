@@ -1,4 +1,5 @@
 import pytest
+
 from androtools.android_sdk.platform_tools import ADB
 
 

@@ -16,9 +16,33 @@ class CMD:
     def __init__(self, path: str) -> None:
         assert isinstance(path, str)
         self.bin_path = path if os.path.exists(path) else shutil.which(path)
+        self._args = []
+
+    def reset(self):
+        self._args.clear()
 
     def _build_cmds(self, cmd: list):
         return [self.bin_path] + cmd
+
+    def build(self, arg: str):
+        self._args.append(arg)
+        return self
+
+    def build_args(self, args: list):
+        self._args += args
+        return self
+
+    def run(self, is_reset: bool = True):
+        result = self._run(self._args)
+        if is_reset:
+            self.reset()
+        return result
+
+    def run_async(self, is_reset: bool = True):
+        result = self._run_async(self._args)
+        if is_reset:
+            self.reset()
+        return result
 
     def _run(self, cmd: list, shell: bool = False):
         """运行阻塞命令"""
