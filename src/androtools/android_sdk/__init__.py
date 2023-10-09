@@ -44,7 +44,7 @@ class CMD:
             self.reset()
         return result
 
-    def _run(self, cmd: list, shell: bool = False):
+    def _run(self, cmd: list, shell: bool = False, encoding: str = None):
         """运行阻塞命令"""
         assert isinstance(cmd, list)
         for item in cmd:
@@ -53,7 +53,7 @@ class CMD:
         r = subprocess.run(
             self._build_cmds(cmd),
             shell=shell,  # 例如使用通配符、管道或重定向时，须使用shell
-            encoding="utf-8",
+            encoding=encoding,
             capture_output=True,
             text=True,
         )

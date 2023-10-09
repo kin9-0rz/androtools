@@ -1,5 +1,6 @@
 # 雷电模拟器
 import shutil
+from enum import Enum
 from time import sleep
 
 from loguru import logger
@@ -9,10 +10,11 @@ from androtools.core.constants import DeviceState, KeyEvent
 
 
 class LDConsole(CMD):
-    def __init__(self, path=None):
-        if path is None:
-            path = shutil.which("ldconsole.exe")
+    def __init__(self, path=shutil.which("ldconsole.exe")):
         super().__init__(path)
+
+    def help(self):
+        return self._run([])
 
     def launch_device(self, idx: int):
         return self._run(["launch", "--index", str(idx)])
@@ -29,10 +31,10 @@ class LDConsole(CMD):
     def list_devices(self):
         """列出所有模拟器信息
 
-        索引，标题，顶层窗口句柄，绑定窗口句柄，运行状态，进程ID，VBox进程PID，分辨率-宽，分辨率-高，dpi。
+        索引, 标题, 顶层窗口句柄, 绑定窗口句柄, 运行状态, 进程ID, VBox进程PID, 分辨率-宽, 分辨率-高, dpi。
 
-        - 运行状态：0-停止,1-运行,2-挂起
-        - 进程ID：不运行则为-1.
+        - 运行状态: 0-停止,1-运行,2-挂起
+        - 进程ID: 不运行则为-1.
 
         Returns:
             _type_: _description_
@@ -62,7 +64,7 @@ class LDConsole(CMD):
         )
 
     def adb(self, idx, cmd):
-        return self._run(["adb", "--index", str(idx), "--command", '"', cmd, '"'])
+        return self._run(["adb", "--index", str(idx), "--command", cmd])
 
     def adb_shell(self, idx, cmd: str | list):
         if isinstance(cmd, list):
@@ -73,32 +75,81 @@ class LDConsole(CMD):
 class LDPlayerInfo:
     index: str
     name: str
+    ldconsole_path: str
     ldconsole: LDConsole
 
     def __init__(self, index: int, name: str, ldconsole_path: str = None) -> None:
         self.index = index
         self.name = name
+        self.ldconsole_path = ldconsole_path
         self.ldconsole = LDConsole(ldconsole_path)
+
+    def __eq__(self, __value: object) -> bool:
+        return (
+            self.index == __value.index
+            and self.name == __value.name
+            and self.ldconsole_path == __value.ldconsole_path
+        )
+
+
+# 0-停止,1-运行,2-挂起
+
+
+class LDPlayerStatus(Enum):
+    # 0-停止,1-运行,2-挂起
+    STOP = "0"
+    RUN = "1"
+    HANG_UP = "2"
+    OTHER = "3"
+
+    def get(value):
+        for item in LDPlayerStatus:
+            if item.value == value:
+                return item
+        return LDPlayerStatus.OTHER
 
 
 class LDPlayer:
     # def __init__(self, index: int, name: str, ldconsole_path: str = None) -> None:
     def __init__(self, info: LDPlayerInfo) -> None:
+        self.info = info
         self.index = info.index
         self.name = info.name
         self.ldconsole = info.ldconsole
 
     def launch(self):
         self.ldconsole.launch_device(self.index)
+        while True:
+            r = self.get_status()
+            if r is LDPlayerStatus.RUN:
+                break
+            sleep(1)
+        sleep(10)
 
     def close(self):
         self.ldconsole.quit_device(self.index)
+        while True:
+            r = self.get_status()
+            if r is LDPlayerStatus.STOP:
+                break
+            sleep(1)
 
     def reboot(self):
         self.ldconsole.reboot_device(self.index)
+        while True:
+            r = self.get_status()
+            if r is LDPlayerStatus.RUN:
+                break
+            sleep(1)
+        sleep(10)
 
     def get_status(self):
-        return self.ldconsole.list_devices()
+        out, _ = self.ldconsole.list_devices()
+        for line in out.strip().split("\n"):
+            if self.name not in line:
+                continue
+            parts = line.split(",")
+            return LDPlayerStatus.get(parts[4])
 
     def install_appp(self, path):
         self.ldconsole.install_app(self.index, path)
@@ -118,14 +169,20 @@ class LDPlayer:
     def push(self, local, remote):
         self.ldconsole.push(self.index, local, remote)
 
+    def adb(self, cmd):
+        return self.ldconsole.adb(self.index, cmd)
+
+    def adb_shell(self, cmd):
+        return self.ldconsole.adb_shell(self.index, cmd)
+
     def dumpsys_window_windows(self):
         cmd = ["dumpsys", "window", "windows"]
-        output, _ = self.ldconsole.adb_shell(cmd)
+        output, _ = self.adb_shell(cmd)
         return output
 
     def tap(self, x, y):
         cmd = ["input", "tap", str(x), str(y)]
-        self.ldconsole.adb_shell(cmd)
+        self.adb_shell(cmd)
         sleep(0.5)
 
     def long_press(self, x, y):
@@ -135,12 +192,12 @@ class LDPlayer:
         cmd = ["input", "swipe", str(x1), str(y1), str(x2), str(y2)]
         if time:
             cmd.append(str(time))
-        self.ldconsole.adb_shell(cmd)
+        self.adb_shell(cmd)
         sleep(0.5)
 
     def input_keyevent(self, keyevent: KeyEvent):
         cmd = ["input", "keyevent", str(keyevent.value)]
-        self.ldconsole.adb_shell(cmd)
+        self.adb_shell(cmd)
         sleep(0.5)
 
     def home(self):
@@ -154,24 +211,41 @@ class LDPlayer:
 
 
 class LDPlayerManger:
-    """设备如何管理
-    管理哪些设备？
-    1. 指定设备。
-    2. 如果设备没有启动，则启动设备。
+    """
+    1. 根据已知设备初始化。
+    2. 增加设备。
+    3. 删除设备。
+
+    NOTE 雷电模拟器多开的时候，只能开同一个版本，多个版本在执行 adb 命令的时候，会出现卡死。
     """
 
     def __init__(self, infos: list[LDPlayerInfo]):
         self._infos = infos
-        self._devices = {}
+        self._devices: dict[LDPlayer, DeviceState] = {}
         self._init()
 
     def _init(self):
         self._devices.clear()
         for info in self._infos:
-            self._devices.add(LDPlayer(info))
-            # TODO 如果没有启动，则启动；如果卡死，则重启。
+            ldp = LDPlayer(info)
+            self._devices[ldp] = DeviceState.Free
+            if ldp.get_status() is not LDPlayerStatus.RUN:
+                ldp.launch()
 
-        logger.debug("初始完毕")
+    def add(self, info: LDPlayerInfo):
+        self._infos.append(info)
+        ldp = LDPlayer(info)
+        if ldp.get_status() is not LDPlayerStatus.RUN:
+            ldp.launch()
+        self._devices[ldp] = DeviceState.Free
+
+    def remove(self, info: LDPlayerInfo):
+        self._infos.remove(info)
+        for device in self._devices:
+            if device.info == info:
+                device.close()
+                self._devices.pop(device)
+                break
 
     def get_total(self) -> int:
         return len(self._devices)
@@ -187,28 +261,3 @@ class LDPlayerManger:
         if device not in self._devices:
             return
         self._devices[device] = DeviceState.Free
-
-    def update(self):
-        # TODO 对所有的设备进行检查
-        # NOTE 仅仅处理指定的设备。
-        devices = self._adb.get_devices()
-        if devices is None:
-            return
-
-        for item in devices:
-            name = item[0]
-            if item[1] != "device":
-                logger.error(f"设备 {name} offline.")
-                continue
-
-            try:
-                logger.debug(f"开始初始化设备 {name}")
-                device = LDPlayer(name)
-            except Exception:
-                logger.error(f"设备 {name} 找不到", stack_info=True)
-                continue
-
-            if device in self._devices:
-                logger.error(f"设备 {name} 已经存在")
-                continue
-            self._devices[device] = DeviceState.Free

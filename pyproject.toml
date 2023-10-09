@@ -1,6 +1,6 @@
 [project]
 name = "androtools"
-version = "0.1.17"
+version = "0.1.18"
 description = "一个对Android SDK相关的命令封装的库"
 authors = [{ name = "kin9-0rz", email = "kin9-0rz@outlook.com" }]
 readme = "README.md"
@@ -14,11 +14,6 @@ classifiers = [
   "Natural Language :: Chinese (Simplified)",
   "Development Status :: 3 - Alpha",
 ]
-
-# Project-URL: Repository, https://gitee.com/kin9-0rz/apkutils
-
-Home-page = "https://gitee.com/kin9-0rz/androtools"
-repository = "https://gitee.com/kin9-0rz/androtools"
 license = "MIT"
 dependencies = [
   "click>=8.1.6",
