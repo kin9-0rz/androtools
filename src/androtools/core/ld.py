@@ -3,6 +3,7 @@ import shutil
 from enum import Enum
 from time import sleep
 
+from func_timeout import FunctionTimedOut, func_timeout
 from loguru import logger
 
 from androtools.android_sdk import CMD
@@ -31,13 +32,22 @@ class LDConsole(CMD):
     def list_devices(self):
         """列出所有模拟器信息
 
-        索引, 标题, 顶层窗口句柄, 绑定窗口句柄, 运行状态, 进程ID, VBox进程PID, 分辨率-宽, 分辨率-高, dpi。
+                0. 索引
+                1. 标题
+                2. 顶层窗口句柄
+                3. 绑定窗口句柄
+                4. 运行状态
+                5. 进程ID
+        . VBox进程PID
+        . 分辨率-宽
+        . 分辨率-高
+        . dpi。
 
-        - 运行状态: 0-停止,1-运行,2-挂起
-        - 进程ID: 不运行则为-1.
+                - 运行状态: 0-停止,1-运行,2-挂起
+                - 进程ID: 不运行则为-1.
 
-        Returns:
-            _type_: _description_
+                Returns:
+                    _type_: _description_
         """
         return self._run(["list2"])
 
@@ -150,6 +160,14 @@ class LDPlayer:
                 continue
             parts = line.split(",")
             return LDPlayerStatus.get(parts[4])
+
+    def is_crashed(self):
+        try:
+            # 点击HOME键，超过5秒没反应
+            func_timeout(5, self.home)
+        except FunctionTimedOut:
+            return True
+        return False
 
     def install_appp(self, path):
         self.ldconsole.install_app(self.index, path)
