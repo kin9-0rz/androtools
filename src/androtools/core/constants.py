@@ -3,7 +3,7 @@
 from enum import Enum
 
 
-class DeviceState:
+class DeviceState(Enum):
     Free = 0
     Busy = 1
 

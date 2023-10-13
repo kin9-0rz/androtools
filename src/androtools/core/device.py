@@ -30,6 +30,7 @@ class G_STATE(Enum):
     OFFLINE = "offline"
     BOOTLOADER = "bootloader"
     NOFOUND = "nofound"
+    UNKNOWN = "unknown"
 
 
 # adb -s emulator-5554 emu avd id
@@ -62,7 +63,7 @@ class Device:
         self,
         device_name: str,
         device_type: DeviceType = DeviceType.Serial,
-        adb_path: str = None,
+        adb_path: str | None = None,
     ):
         assert isinstance(device_name, str)
         self.name = device_name
@@ -136,16 +137,18 @@ class Device:
         if "bootloader" in output:
             return G_STATE.BOOTLOADER
 
+        return G_STATE.UNKNOWN
+
     def _run_shell_cmd(self, cmd: list):
         logger.debug(f"run shell cmd : {cmd}")
         if not self.check_device_status():
-            raise RuntimeError(f"{self.device_name} 设备丢失。")
+            raise RuntimeError(f"{self.name} 设备丢失。")
         return self.adb.run_shell_cmd(cmd)
 
     def _run_cmd(self, cmd: list):
         logger.debug(f"run cmd : {str(cmd)}")
         if not self.check_device_status():
-            raise RuntimeError(f"{self.device_name} 设备丢失。")
+            raise RuntimeError(f"{self.name} 设备丢失。")
         return self.adb.run_cmd(cmd)
 
     def _init_sdk(self):
@@ -301,6 +304,11 @@ class Device:
         self._run_shell_cmd(cmd)
         sleep(0.5)
 
+    def input_text(self, txt: str):
+        cmd = ["input", "text", txt]
+        self._run_cmd(cmd)
+        sleep(0.5)
+
     def home(self):
         self.input_keyevent(KeyEvent.KEYCODE_HOME)
 
@@ -312,7 +320,7 @@ class Device:
 
 
 class DeviceManager:
-    def __init__(self, adb_path: str = None):
+    def __init__(self, adb_path: str | None = None):
         self._adb = ADB(adb_path)
         self._devices = {}
         self._init()

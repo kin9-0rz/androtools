@@ -16,12 +16,12 @@ class CMD:
     def __init__(self, path: str) -> None:
         assert isinstance(path, str)
         self.bin_path = path if os.path.exists(path) else shutil.which(path)
-        self._args = []
+        self._args: list[str] = []
 
     def reset(self):
         self._args.clear()
 
-    def _build_cmds(self, cmd: list):
+    def _build_cmds(self, cmd: list) -> list:
         return [self.bin_path] + cmd
 
     def build(self, arg: str):
@@ -44,7 +44,7 @@ class CMD:
             self.reset()
         return result
 
-    def _run(self, cmd: list, shell: bool = False, encoding: str = None):
+    def _run(self, cmd: list, shell: bool = False, encoding: str | None = None):
         """运行阻塞命令"""
         assert isinstance(cmd, list)
         for item in cmd:

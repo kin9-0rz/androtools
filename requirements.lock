@@ -7,7 +7,7 @@
 #   all-features: false
 
 -e file:.
-click==8.1.6
+click==8.1.7
 func-timeout==4.3.5
-loguru==0.7.0
+loguru==0.7.2
 psutil==5.9.5

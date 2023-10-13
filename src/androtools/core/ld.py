@@ -1,13 +1,12 @@
 # 雷电模拟器
 import shutil
-from enum import Enum
 from time import sleep
 
-from func_timeout import FunctionTimedOut, func_timeout
 from loguru import logger
 
 from androtools.android_sdk import CMD
-from androtools.core.constants import DeviceState, KeyEvent
+from androtools.core.constants import DeviceState
+from androtools.core.emu import Emu, EmuInfo, EmuStatus
 
 
 class LDConsole(CMD):
@@ -17,13 +16,13 @@ class LDConsole(CMD):
     def help(self):
         return self._run([])
 
-    def launch_device(self, idx: int):
+    def launch_device(self, idx: int | str):
         return self._run(["launch", "--index", str(idx)])
 
-    def reboot_device(self, idx: int):
+    def reboot_device(self, idx: int | str):
         return self._run(["reboot", "--index", str(idx)])
 
-    def quit_device(self, idx: int):
+    def quit_device(self, idx: int | str):
         return self._run(["quit", "--index", str(idx)])
 
     def quit_all_devices(self):
@@ -79,57 +78,47 @@ class LDConsole(CMD):
         return self.adb(idx, f"shell {cmd}")
 
 
-class LDPlayerInfo:
-    index: str
-    name: str
-    ldconsole_path: str
-    ldconsole: LDConsole
-
-    def __init__(self, index: int, name: str, ldconsole_path: str = None) -> None:
+class LDPlayerInfo(EmuInfo):
+    def __init__(self, index: str, name: str, path: str) -> None:
         self.index = index
         self.name = name
-        self.ldconsole_path = ldconsole_path
-        self.ldconsole = LDConsole(ldconsole_path)
+        self.path = path
 
     def __eq__(self, __value: object) -> bool:
-        return (
-            self.index == __value.index
-            and self.name == __value.name
-            and self.ldconsole_path == __value.ldconsole_path
-        )
+        if not isinstance(__value, LDPlayerInfo):
+            return False
+
+        return self.index == __value.index and self.path == __value.path
 
 
-# 0-停止,1-运行,2-挂起
+# class EmuStatus(Enum):
+#     # 0-停止,1-运行,2-挂起
+#     STOP = "0"
+#     RUN = "1"
+#     HANG_UP = "2"
+#     ERORR = "3"  # 模拟器执行 adb 命令没响应，则为错误，需要重启模拟器
+#     UNKNOWN = "4"
+
+#     @staticmethod
+#     def get(value):
+#         for item in EmuStatus:
+#             if item.value == value:
+#                 return item
+#         return EmuStatus.UNKNOWN
 
 
-class LDPlayerStatus(Enum):
-    # 0-停止,1-运行,2-挂起
-    STOP = "0"
-    RUN = "1"
-    HANG_UP = "2"
-    ERORR = "3"  # 模拟器执行 adb 命令没响应，则为错误，需要重启模拟器
-    OTHER = "4"
-
-    def get(value):
-        for item in LDPlayerStatus:
-            if item.value == value:
-                return item
-        return LDPlayerStatus.OTHER
-
-
-class LDPlayer:
-    # def __init__(self, index: int, name: str, ldconsole_path: str = None) -> None:
+class LDPlayer(Emu):
     def __init__(self, info: LDPlayerInfo) -> None:
         self.info = info
         self.index = info.index
         self.name = info.name
-        self.ldconsole = info.ldconsole
+        self.ldconsole = LDConsole(info.path)
 
     def launch(self):
         self.ldconsole.launch_device(self.index)
         while True:
             r = self.get_status()
-            if r is LDPlayerStatus.RUN:
+            if r is EmuStatus.RUN:
                 break
             sleep(1)
         sleep(10)
@@ -138,7 +127,7 @@ class LDPlayer:
         self.ldconsole.quit_device(self.index)
         while True:
             r = self.get_status()
-            if r is LDPlayerStatus.STOP:
+            if r is EmuStatus.STOP:
                 break
             sleep(1)
 
@@ -146,45 +135,45 @@ class LDPlayer:
         self.ldconsole.reboot_device(self.index)
         while True:
             r = self.get_status()
-            if r is LDPlayerStatus.RUN:
+            if r is EmuStatus.RUN:
                 break
             sleep(1)
         sleep(10)
 
     def get_status(self):
-        status = LDPlayerStatus.OTHER
+        status = EmuStatus.UNKNOWN
         out, _ = self.ldconsole.list_devices()
         for line in out.strip().split("\n"):
             if self.name not in line:
                 continue
             parts = line.split(",")
-            status = LDPlayerStatus.get(parts[4])
+            status = EmuStatus.get(parts[4])
             break
 
-        if status is LDPlayerStatus.RUN:
+        if status is EmuStatus.RUN:
             if self.is_crashed():
-                status = LDPlayerStatus.ERORR
+                status = EmuStatus.ERORR
 
         return status
 
-    def is_crashed(self):
-        try:
-            # 点击HOME键，超过5秒没反应
-            func_timeout(5, self.home)
-        except FunctionTimedOut:
-            return True
-        return False
+    # def is_crashed(self):
+    #     try:
+    #         # 点击HOME键，超过5秒没反应
+    #         func_timeout(5, self.home)
+    #     except FunctionTimedOut:
+    #         return True
+    #     return False
 
-    def install_appp(self, path):
+    def install_app(self, path):
         self.ldconsole.install_app(self.index, path)
 
-    def uninstall_appp(self, package):
+    def uninstall_app(self, package):
         self.ldconsole.uninstall_app(self.index, package)
 
-    def run_appp(self, package):
+    def run_app(self, package):
         self.ldconsole.run_app(self.index, package)
 
-    def kill_appp(self, package):
+    def kill_app(self, package):
         self.ldconsole.kill_app(self.index, package)
 
     def pull(self, remote, local):
@@ -193,45 +182,50 @@ class LDPlayer:
     def push(self, local, remote):
         self.ldconsole.push(self.index, local, remote)
 
-    def adb(self, cmd):
+    def adb(self, cmd: str | list):
         return self.ldconsole.adb(self.index, cmd)
 
-    def adb_shell(self, cmd):
+    def adb_shell(self, cmd: str | list):
         return self.ldconsole.adb_shell(self.index, cmd)
 
-    def dumpsys_window_windows(self):
-        cmd = ["dumpsys", "window", "windows"]
-        output, _ = self.adb_shell(cmd)
-        return output
+    # def dumpsys_window_windows(self):
+    #     cmd = ["dumpsys", "window", "windows"]
+    #     output, _ = self.adb_shell(cmd)
+    #     return output
 
-    def tap(self, x, y):
-        cmd = ["input", "tap", str(x), str(y)]
-        self.adb_shell(cmd)
-        sleep(0.5)
+    # def tap(self, x, y):
+    #     cmd = ["input", "tap", str(x), str(y)]
+    #     self.adb_shell(cmd)
+    #     sleep(0.5)
 
-    def long_press(self, x, y):
-        self.swipe(x, y, x, y, 750)
+    # def long_press(self, x, y):
+    #     self.swipe(x, y, x, y, 750)
 
-    def swipe(self, x1, y1, x2, y2, time=None):
-        cmd = ["input", "swipe", str(x1), str(y1), str(x2), str(y2)]
-        if time:
-            cmd.append(str(time))
-        self.adb_shell(cmd)
-        sleep(0.5)
+    # def swipe(self, x1, y1, x2, y2, time=None):
+    #     cmd = ["input", "swipe", str(x1), str(y1), str(x2), str(y2)]
+    #     if time:
+    #         cmd.append(str(time))
+    #     self.adb_shell(cmd)
+    #     sleep(0.5)
 
-    def input_keyevent(self, keyevent: KeyEvent):
-        cmd = ["input", "keyevent", str(keyevent.value)]
-        self.adb_shell(cmd)
-        sleep(0.5)
+    # def input_keyevent(self, keyevent: KeyEvent):
+    #     cmd = ["input", "keyevent", str(keyevent.value)]
+    #     self.adb_shell(cmd)
+    #     sleep(0.5)
 
-    def home(self):
-        self.input_keyevent(KeyEvent.KEYCODE_HOME)
+    # def input_text(self, txt: str):
+    #     cmd = ["input", "text", txt]
+    #     self.adb_shell(cmd)
+    #     sleep(0.5)
 
-    def back(self):
-        self.input_keyevent(KeyEvent.KEYCODE_BACK)
+    # def home(self):
+    #     self.input_keyevent(KeyEvent.KEYCODE_HOME)
 
-    def delete(self):
-        self.input_keyevent(KeyEvent.KEYCODE_DEL)
+    # def back(self):
+    #     self.input_keyevent(KeyEvent.KEYCODE_BACK)
+
+    # def delete(self):
+    #     self.input_keyevent(KeyEvent.KEYCODE_DEL)
 
 
 class LDPlayerManger:
@@ -254,13 +248,13 @@ class LDPlayerManger:
         for info in self._infos:
             ldp = LDPlayer(info)
             self._devices[ldp] = DeviceState.Free
-            if ldp.get_status() is not LDPlayerStatus.RUN:
+            if ldp.get_status() is not EmuStatus.RUN:
                 ldp.launch()
 
     def add(self, info: LDPlayerInfo):
         self._infos.append(info)
         ldp = LDPlayer(info)
-        if ldp.get_status() is not LDPlayerStatus.RUN:
+        if ldp.get_status() is not EmuStatus.RUN:
             ldp.launch()
         self._devices[ldp] = DeviceState.Free
 
@@ -281,6 +275,7 @@ class LDPlayerManger:
                 self._devices[device] = DeviceState.Busy
                 logger.debug(f"free device: {device}")
                 return device
+        return None
 
     def free_busy_device(self, device: LDPlayer):
         if device not in self._devices:

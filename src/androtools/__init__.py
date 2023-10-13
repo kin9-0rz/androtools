@@ -7,7 +7,7 @@ from loguru import logger
 DEBUG_MODE = False
 
 
-if 0 in logger._core.handlers:
+if 0 in logger._core.handlers:  # type: ignore
     logger.remove(0)
 
 _level = getLevelName(INFO)
@@ -29,3 +29,6 @@ logger.add(
     backtrace=True,
     diagnose=True,
 )
+
+
+# logger.debug("Hello World")

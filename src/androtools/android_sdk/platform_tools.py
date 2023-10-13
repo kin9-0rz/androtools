@@ -27,9 +27,13 @@ class ADB(CMD):
         _type_: _description_
     """
 
-    def __init__(self, path: str = None) -> None:
+    def __init__(self, path: str | None = None) -> None:
         if path is None:
             path = shutil.which("adb")
+
+        if path is None:
+            raise ValueError("adb not found")
+
         super().__init__(path)
         self._cmd_target_device = []
 
