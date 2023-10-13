@@ -32,22 +32,19 @@ class LDConsole(CMD):
     def list_devices(self):
         """列出所有模拟器信息
 
-                0. 索引
-                1. 标题
-                2. 顶层窗口句柄
-                3. 绑定窗口句柄
-                4. 运行状态
-                5. 进程ID
-        . VBox进程PID
-        . 分辨率-宽
-        . 分辨率-高
-        . dpi。
+        0. 索引
+        1. 标题
+        2. 顶层窗口句柄
+        3. 绑定窗口句柄
+        4. 运行状态, 0-停止,1-运行,2-挂起
+        5. 进程ID, 不运行则为 -1.
+        6. VBox进程PID
+        7. 分辨率-宽
+        8. 分辨率-高
+        9. dpi
 
-                - 运行状态: 0-停止,1-运行,2-挂起
-                - 进程ID: 不运行则为-1.
-
-                Returns:
-                    _type_: _description_
+        Returns:
+            _type_: _description_
         """
         return self._run(["list2"])
 
@@ -110,7 +107,8 @@ class LDPlayerStatus(Enum):
     STOP = "0"
     RUN = "1"
     HANG_UP = "2"
-    OTHER = "3"
+    ERORR = "3"  # 模拟器执行 adb 命令没响应，则为错误，需要重启模拟器
+    OTHER = "4"
 
     def get(value):
         for item in LDPlayerStatus:
@@ -154,12 +152,20 @@ class LDPlayer:
         sleep(10)
 
     def get_status(self):
+        status = LDPlayerStatus.OTHER
         out, _ = self.ldconsole.list_devices()
         for line in out.strip().split("\n"):
             if self.name not in line:
                 continue
             parts = line.split(",")
-            return LDPlayerStatus.get(parts[4])
+            status = LDPlayerStatus.get(parts[4])
+            break
+
+        if status is LDPlayerStatus.RUN:
+            if self.is_crashed():
+                status = LDPlayerStatus.ERORR
+
+        return status
 
     def is_crashed(self):
         try:
@@ -230,12 +236,13 @@ class LDPlayer:
 
 class LDPlayerManger:
     """
+    只能管理 Android 同版的模拟器，不同版本，无法执行 adb。
     1. 根据已知设备初始化。
     2. 增加设备。
     3. 删除设备。
-
-    NOTE 雷电模拟器多开的时候，只能开同一个版本，多个版本在执行 adb 命令的时候，会出现卡死。
     """
+
+    # NOTE 雷电模拟器多开的时候，只能开同一个版本，多个版本在执行 adb 命令时，会卡死。
 
     def __init__(self, infos: list[LDPlayerInfo]):
         self._infos = infos
