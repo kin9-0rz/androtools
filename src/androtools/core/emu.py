@@ -5,7 +5,6 @@ from time import sleep
 
 from func_timeout import FunctionTimedOut, func_timeout
 
-from androtools.android_sdk import CMD
 from androtools.core.constants import KeyEvent
 
 
@@ -43,6 +42,7 @@ class EmuStatus(Enum):
 
 
 class Emu(ABC):
+    @abstractmethod
     def __init__(self, info: EmuInfo) -> None:
         pass
 
@@ -72,27 +72,27 @@ class Emu(ABC):
         return False
 
     @abstractmethod
-    def install_app(self, path):
+    def install_app(self, path: str):
         """安装应用"""
 
     @abstractmethod
-    def uninstall_app(self, package):
+    def uninstall_app(self, package: str):
         """卸载应用"""
 
     @abstractmethod
-    def run_app(self, package):
+    def run_app(self, package: str):
         """运行应用"""
 
     @abstractmethod
-    def kill_app(self, package):
+    def kill_app(self, package: str):
         """杀死应用"""
 
     @abstractmethod
-    def pull(self, remote, local):
+    def pull(self, remote: str, local: str):
         """将文件从模拟器下载到本地"""
 
     @abstractmethod
-    def push(self, local, remote):
+    def push(self, local: str, remote: str):
         """将文件从本地上传到模拟器"""
 
     @abstractmethod
@@ -103,20 +103,35 @@ class Emu(ABC):
     def adb_shell(self, cmd: str | list) -> tuple[str, str]:
         """执行 adb shell 命令"""
 
+    def rm(self, path: str, isDir: bool = False, force: bool = False):
+        """删除文件
+
+        Args:
+            path (str): 文件路径
+            force (bool, optional): 是否强制删除，默认否. Defaults to False.
+        """
+        cmd = ["rm"]
+        if isDir:
+            cmd.append("-r")
+        if force:
+            cmd.append("-f")
+        cmd.append(path)
+        self.adb_shell(cmd)
+
     def dumpsys_window_windows(self):
         cmd = ["dumpsys", "window", "windows"]
         output, _ = self.adb_shell(cmd)
         return output
 
-    def tap(self, x, y):
+    def tap(self, x: int, y: int):
         cmd = ["input", "tap", str(x), str(y)]
         self.adb_shell(cmd)
         sleep(0.5)
 
-    def long_press(self, x, y):
+    def long_press(self, x: int, y: int):
         self.swipe(x, y, x, y, 750)
 
-    def swipe(self, x1, y1, x2, y2, time=None):
+    def swipe(self, x1: int, y1: int, x2: int, y2: int, time: int | None = None):
         cmd = ["input", "swipe", str(x1), str(y1), str(x2), str(y2)]
         if time:
             cmd.append(str(time))
