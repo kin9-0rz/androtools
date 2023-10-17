@@ -9,13 +9,14 @@ def adb():
 
 
 def test_run_cmd(adb):
-    output, _ = adb.run_cmd(["devices"])
-    print(output)
+    output, _ = adb.run(["devices"])
     assert "List of devices attached" in output
 
 
 def test_run_shell_cmd(adb: ADB):
-    output, _ = adb.run_shell_cmd(["ps"])
+    output, err = adb.run_shell(None, ["ps"])
+    if "more than one device/emulator" in err:
+        return
     assert "zygote" in output
 
 

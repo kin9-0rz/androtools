@@ -22,6 +22,7 @@ class CMD:
         self._args.clear()
 
     def _build_cmds(self, cmd: list) -> list:
+        assert isinstance(cmd, list)
         return [self.bin_path] + cmd
 
     def build(self, arg: str):
@@ -49,9 +50,10 @@ class CMD:
         assert isinstance(cmd, list)
         for item in cmd:
             assert isinstance(item, str)
-
+        args = self._build_cmds(cmd)
+        print("run_cmd : ", " ".join(args))
         r = subprocess.run(
-            self._build_cmds(cmd),
+            args,
             shell=shell,  # 例如使用通配符、管道或重定向时，须使用shell
             encoding=encoding,
             capture_output=True,

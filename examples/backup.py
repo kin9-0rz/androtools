@@ -7,11 +7,11 @@ devs = adb.get_devices()
 if len(devs) == 0:
     exit()
 
-result, _ = adb.run_shell_cmd(["pm", "list", "packages", "-3"])
+result, _ = adb.run_shell(["pm", "list", "packages", "-3"])
 lines = result.splitlines()
 
-pbrand, _ = adb.run_shell_cmd(["getprop", "ro.product.brand"])
-pname, _ = adb.run_shell_cmd(["getprop", "ro.product.name"])
+pbrand, _ = adb.run_shell(["getprop", "ro.product.brand"])
+pname, _ = adb.run_shell(["getprop", "ro.product.name"])
 
 bk_path = pbrand.strip() + "_" + pname.strip()
 if not os.path.exists(bk_path):
@@ -29,10 +29,10 @@ for line in lines:
     print(f"{counter}/{size}", end="\r")
     pkg = line[8:]
     cmd = ["pm", "path", pkg]
-    output, _ = adb.run_shell_cmd(cmd)
+    output, _ = adb.run_shell(cmd)
     app_path = output[8:].strip()
     _cmd = ["pull", app_path, os.path.join(APPS_PATH, pkg + ".apk")]
-    output, _ = adb.run_cmd(_cmd)
+    output, _ = adb.run(_cmd)
 
 print()
 print("Backup Sdcard:")
@@ -50,4 +50,4 @@ dirs = [
 for item in dirs:
     print(f" - backup {item}")
     apath = os.path.join("sdcard", item)
-    adb.run_cmd(["pull", apath, bk_sdcard_path])
+    adb.run(["pull", apath, bk_sdcard_path])

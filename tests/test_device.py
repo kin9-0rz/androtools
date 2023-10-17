@@ -1,6 +1,7 @@
 import pytest
+from androtools.android_sdk.emulator import Emulator
 from androtools.android_sdk.platform_tools import ADB
-from androtools.core.device import Device, DeviceManager
+from androtools.core.device import Device, DeviceInfo, DeviceManager
 
 
 @pytest.fixture
@@ -10,7 +11,13 @@ def device():
         return
     assert isinstance(device_names, list)
     assert len(device_names) >= 1
-    return Device(device_names[0][0])
+
+    di = DeviceInfo(
+        name="Pixel_XL_API_30",
+        serial="emulator-5554",
+    )
+
+    return Device(di)
 
 
 def test_ls(device: Device):

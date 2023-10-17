@@ -35,44 +35,32 @@ class ADB(CMD):
             raise ValueError("adb not found")
 
         super().__init__(path)
-        self._cmd_target_device = []
 
-    def run_cmd(self, cmd: list):
-        assert isinstance(cmd, list)
+    def run(self, cmd: str | list):
         logger.debug(f"run_cmd : {cmd}")
+        if isinstance(cmd, str):
+            cmd = cmd.split()
         return self._run(cmd)
 
     def help(self):
-        output, _ = self.run_cmd([])
+        output, _ = self.run([])
         logger.debug(output)
 
-    def _build_cmds(self, cmd: list):
+    def run_shell(self, serial: str | None, cmd: list):
         assert isinstance(cmd, list)
-        return [self.bin_path] + self._cmd_target_device + cmd
-
-    # TODO 不需要，对于adb命令来说，接收任意参数才对的
-    def set_target_device(self, device_name, device_type: DeviceType):
-        assert isinstance(device_type, DeviceType)
-        match (device_type):
-            case DeviceType.Serial:
-                self._cmd_target_device.append("-s")
-                self._cmd_target_device.append(device_name)
-            case DeviceType.TransportID:
-                self._cmd_target_device.append("-t")
-                self._cmd_target_device.append(device_name)
-
-    def run_shell_cmd(self, cmd: list):
-        assert isinstance(cmd, list)
-        return self.run_cmd(self._cmd_target_device + ["shell"] + cmd)
+        cmd = ["shell"] + cmd
+        if serial is not None:
+            cmd = ["-s", serial] + cmd
+        return self.run(cmd)
 
     def get_devices(self):
         devices = []
 
         while True:
-            self.run_cmd(["devices", "-l"])
-            self.run_cmd(["devices", "-l"])
+            self.run(["devices", "-l"])
+            self.run(["devices", "-l"])
 
-            output, _ = self.run_cmd(["devices", "-l"])
+            output, _ = self.run(["devices", "-l"])
             output = output.strip()
             if output == "List of devices attached":
                 sleep(0.5)
@@ -97,14 +85,14 @@ class ADB(CMD):
         return devices
 
     def connect(self, host: str, port: int):
-        output, _ = self.run_cmd(["connect", f"{host}:{port}"])
+        output, _ = self.run(["connect", f"{host}:{port}"])
         return "Connection refused" not in output
 
     def kill_server(self):
-        self.run_cmd(["kill-server"])
+        self.run(["kill-server"])
 
     def start_server(self):
-        output, error = self.run_cmd(["start-server"])
+        output, error = self.run(["start-server"])
         if "daemon started successfully" in error:
             logger.debug("adb-server start success")
         else:

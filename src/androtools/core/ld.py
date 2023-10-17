@@ -5,8 +5,7 @@ from time import sleep
 from loguru import logger
 
 from androtools.android_sdk import CMD
-from androtools.core.constants import DeviceState
-from androtools.core.emu import Emu, EmuInfo, EmuStatus
+from androtools.core.emu import Emu, EmuInfo, EmuStatus, WorkStatus
 
 
 class LDConsole(CMD):
@@ -47,35 +46,17 @@ class LDConsole(CMD):
         """
         return self._run(["list2"])
 
-    def install_app(self, idx, path):
-        return self._run(["installapp", "--index", str(idx), path])
-
-    def uninstall_app(self, idx, package):
-        return self._run(["uninstall", "--index", str(idx), package])
-
-    def run_app(self, idx, package):
-        return self._run(["runapp", "--index", str(idx), "--packagename", package])
-
-    def kill_app(self, idx, package):
-        return self._run(["killapp", "--index", str(idx), "--packagename", package])
-
-    def pull(self, idx, remote, local):
+    def adb(self, idx, cmd, encoding: str | None = None):
+        print("adb", idx, cmd)
+        assert isinstance(cmd, str)
         return self._run(
-            ["pull", "--index", str(idx), "--remote", remote, "--local", local]
+            ["adb", "--index", str(idx), "--command", cmd], encoding=encoding
         )
 
-    def push(self, idx, local, remote):
-        return self._run(
-            ["push", "--index", str(idx), "--local", local, "--remote", remote]
-        )
-
-    def adb(self, idx, cmd):
-        return self._run(["adb", "--index", str(idx), "--command", cmd])
-
-    def adb_shell(self, idx, cmd: str | list):
+    def adb_shell(self, idx, cmd: str | list, encoding: str | None = None):
         if isinstance(cmd, list):
             cmd = " ".join(cmd)
-        return self.adb(idx, f"shell {cmd}")
+        return self.adb(idx, f"shell {cmd}", encoding=encoding)
 
 
 class LDPlayerInfo(EmuInfo):
@@ -91,28 +72,12 @@ class LDPlayerInfo(EmuInfo):
         return self.index == __value.index and self.path == __value.path
 
 
-# class EmuStatus(Enum):
-#     # 0-停止,1-运行,2-挂起
-#     STOP = "0"
-#     RUN = "1"
-#     HANG_UP = "2"
-#     ERORR = "3"  # 模拟器执行 adb 命令没响应，则为错误，需要重启模拟器
-#     UNKNOWN = "4"
-
-#     @staticmethod
-#     def get(value):
-#         for item in EmuStatus:
-#             if item.value == value:
-#                 return item
-#         return EmuStatus.UNKNOWN
-
-
 class LDPlayer(Emu):
     def __init__(self, info: LDPlayerInfo) -> None:
-        self.info = info
         self.index = info.index
         self.name = info.name
         self.ldconsole = LDConsole(info.path)
+        super().__init__(info)
 
     def launch(self):
         self.ldconsole.launch_device(self.index)
@@ -156,76 +121,13 @@ class LDPlayer(Emu):
 
         return status
 
-    # def is_crashed(self):
-    #     try:
-    #         # 点击HOME键，超过5秒没反应
-    #         func_timeout(5, self.home)
-    #     except FunctionTimedOut:
-    #         return True
-    #     return False
+    def adb(self, cmd: str | list, encoding: str | None = None):
+        if isinstance(cmd, list):
+            cmd = " ".join(cmd)
+        return self.ldconsole.adb(self.index, cmd, encoding=encoding)
 
-    def install_app(self, path):
-        self.ldconsole.install_app(self.index, path)
-
-    def uninstall_app(self, package):
-        self.ldconsole.uninstall_app(self.index, package)
-
-    def run_app(self, package):
-        self.ldconsole.run_app(self.index, package)
-
-    def kill_app(self, package):
-        self.ldconsole.kill_app(self.index, package)
-
-    def pull(self, remote, local):
-        self.ldconsole.pull(self.index, remote, local)
-
-    def push(self, local, remote):
-        self.ldconsole.push(self.index, local, remote)
-
-    def adb(self, cmd: str | list):
-        return self.ldconsole.adb(self.index, cmd)
-
-    def adb_shell(self, cmd: str | list):
-        return self.ldconsole.adb_shell(self.index, cmd)
-
-    # def dumpsys_window_windows(self):
-    #     cmd = ["dumpsys", "window", "windows"]
-    #     output, _ = self.adb_shell(cmd)
-    #     return output
-
-    # def tap(self, x, y):
-    #     cmd = ["input", "tap", str(x), str(y)]
-    #     self.adb_shell(cmd)
-    #     sleep(0.5)
-
-    # def long_press(self, x, y):
-    #     self.swipe(x, y, x, y, 750)
-
-    # def swipe(self, x1, y1, x2, y2, time=None):
-    #     cmd = ["input", "swipe", str(x1), str(y1), str(x2), str(y2)]
-    #     if time:
-    #         cmd.append(str(time))
-    #     self.adb_shell(cmd)
-    #     sleep(0.5)
-
-    # def input_keyevent(self, keyevent: KeyEvent):
-    #     cmd = ["input", "keyevent", str(keyevent.value)]
-    #     self.adb_shell(cmd)
-    #     sleep(0.5)
-
-    # def input_text(self, txt: str):
-    #     cmd = ["input", "text", txt]
-    #     self.adb_shell(cmd)
-    #     sleep(0.5)
-
-    # def home(self):
-    #     self.input_keyevent(KeyEvent.KEYCODE_HOME)
-
-    # def back(self):
-    #     self.input_keyevent(KeyEvent.KEYCODE_BACK)
-
-    # def delete(self):
-    #     self.input_keyevent(KeyEvent.KEYCODE_DEL)
+    def adb_shell(self, cmd: str | list, encoding: str | None = None):
+        return self.ldconsole.adb_shell(self.index, cmd, encoding=encoding)
 
 
 class LDPlayerManger:
@@ -240,14 +142,14 @@ class LDPlayerManger:
 
     def __init__(self, infos: list[LDPlayerInfo]):
         self._infos = infos
-        self._devices: dict[LDPlayer, DeviceState] = {}
+        self._devices: dict[LDPlayer, WorkStatus] = {}
         self._init()
 
     def _init(self):
         self._devices.clear()
         for info in self._infos:
             ldp = LDPlayer(info)
-            self._devices[ldp] = DeviceState.Free
+            self._devices[ldp] = WorkStatus.Free
             if ldp.get_status() is not EmuStatus.RUN:
                 ldp.launch()
 
@@ -256,7 +158,7 @@ class LDPlayerManger:
         ldp = LDPlayer(info)
         if ldp.get_status() is not EmuStatus.RUN:
             ldp.launch()
-        self._devices[ldp] = DeviceState.Free
+        self._devices[ldp] = WorkStatus.Free
 
     def remove(self, info: LDPlayerInfo):
         self._infos.remove(info)
@@ -271,8 +173,8 @@ class LDPlayerManger:
 
     def get_free_device(self) -> LDPlayer | None:
         for device in self._devices:
-            if self._devices[device] == DeviceState.Free:
-                self._devices[device] = DeviceState.Busy
+            if self._devices[device] == WorkStatus.Free:
+                self._devices[device] = WorkStatus.Busy
                 logger.debug(f"free device: {device}")
                 return device
         return None
@@ -280,4 +182,4 @@ class LDPlayerManger:
     def free_busy_device(self, device: LDPlayer):
         if device not in self._devices:
             return
-        self._devices[device] = DeviceState.Free
+        self._devices[device] = WorkStatus.Free
