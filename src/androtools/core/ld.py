@@ -47,7 +47,6 @@ class LDConsole(CMD):
         return self._run(["list2"])
 
     def adb(self, idx, cmd, encoding: str | None = None):
-        print("adb", idx, cmd)
         assert isinstance(cmd, str)
         return self._run(
             ["adb", "--index", str(idx), "--command", cmd], encoding=encoding
