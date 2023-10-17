@@ -36,31 +36,31 @@ class ADB(CMD):
 
         super().__init__(path)
 
-    def run(self, cmd: str | list):
+    def run_cmd(self, cmd: str | list):
         logger.debug(f"run_cmd : {cmd}")
         if isinstance(cmd, str):
             cmd = cmd.split()
         return self._run(cmd)
 
     def help(self):
-        output, _ = self.run([])
+        output, _ = self.run_cmd([])
         logger.debug(output)
 
-    def run_shell(self, serial: str | None, cmd: list):
+    def run_shell_cmd(self, serial: str | None, cmd: list):
         assert isinstance(cmd, list)
         cmd = ["shell"] + cmd
         if serial is not None:
             cmd = ["-s", serial] + cmd
-        return self.run(cmd)
+        return self.run_cmd(cmd)
 
     def get_devices(self):
         devices = []
 
         while True:
-            self.run(["devices", "-l"])
-            self.run(["devices", "-l"])
+            self.run_cmd(["devices", "-l"])
+            self.run_cmd(["devices", "-l"])
 
-            output, _ = self.run(["devices", "-l"])
+            output, _ = self.run_cmd(["devices", "-l"])
             output = output.strip()
             if output == "List of devices attached":
                 sleep(0.5)
@@ -85,14 +85,14 @@ class ADB(CMD):
         return devices
 
     def connect(self, host: str, port: int):
-        output, _ = self.run(["connect", f"{host}:{port}"])
+        output, _ = self.run_cmd(["connect", f"{host}:{port}"])
         return "Connection refused" not in output
 
     def kill_server(self):
-        self.run(["kill-server"])
+        self.run_cmd(["kill-server"])
 
     def start_server(self):
-        output, error = self.run(["start-server"])
+        output, error = self.run_cmd(["start-server"])
         if "daemon started successfully" in error:
             logger.debug("adb-server start success")
         else:

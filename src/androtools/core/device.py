@@ -1,14 +1,12 @@
 from enum import Enum
-from fileinput import isstdin
 from time import sleep
 
 from func_timeout import FunctionTimedOut, func_timeout
 from loguru import logger
 
 from androtools.android_sdk.emulator import Emulator
-from androtools.android_sdk.platform_tools import ADB, DeviceType
-from androtools.core import emu
-from androtools.core.constants import Android_API_MAP, DeviceState, KeyEvent
+from androtools.android_sdk.platform_tools import ADB
+from androtools.core.constants import Android_API_MAP, DeviceState
 from androtools.core.emu import Emu, EmuInfo
 
 
@@ -137,7 +135,7 @@ class Device(Emu):
         return is_ok
 
     def _get_state(self):
-        output, error = self._adb.run(["get-state"])
+        output, error = self._adb.run_cmd(["get-state"])
         # output: ['device']
         # error: error: device offline
         # error: device 'emulator-5556' not found
@@ -167,13 +165,13 @@ class Device(Emu):
             raise RuntimeError(f"{self.name} 设备丢失。")
         if isinstance(cmd, str):
             cmd = cmd.split()
-        return self._adb.run_shell(self.info.serial, cmd)
+        return self._adb.run_shell_cmd(self.info.serial, cmd)
 
     def adb(self, cmd: str | list):
         logger.debug(f"run cmd : {str(cmd)}")
         if not self.check_device_status():
             raise RuntimeError(f"{self.name} 设备丢失。")
-        return self._adb.run(cmd)
+        return self._adb.run_cmd(cmd)
 
     def _init_sdk(self):
         output, _ = self.adb_shell(["getprop", "ro.build.version.sdk"])
