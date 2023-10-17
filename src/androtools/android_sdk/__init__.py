@@ -51,7 +51,7 @@ class CMD:
         for item in cmd:
             assert isinstance(item, str)
         args = self._build_cmds(cmd)
-        print("run_cmd : ", " ".join(args))
+        logger.debug("run_cmd : ", " ".join(args))
         r = subprocess.run(
             args,
             shell=shell,  # 例如使用通配符、管道或重定向时，须使用shell
