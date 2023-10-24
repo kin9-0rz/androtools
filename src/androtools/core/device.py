@@ -1,179 +1,69 @@
+# Android模拟器、雷电模拟器的基类
+from abc import ABC, abstractmethod
+from concurrent.futures import thread
 from enum import Enum
 from time import sleep
+from typing import Sequence
 
 from func_timeout import FunctionTimedOut, func_timeout
 from loguru import logger
 
-from androtools.android_sdk.emulator import Emulator
-from androtools.android_sdk.platform_tools import ADB
-from androtools.core.constants import Android_API_MAP, DeviceState
-from androtools.core.emu import Emu, EmuInfo
+from androtools.core.constants import Android_API_MAP, KeyEvent
 
 
-class STATE(Enum):
-    DEVICE = "device"
-    RECOVERY = "recovery"
-    RESCUE = "rescue"
-    SIDELOADING = "sideload"
-    BOOTLOADER = "bootloader"
-    DISCONNECT = "disconnect"
+class DeviceInfo(ABC):
+    """模拟器信息"""
 
+    index: str  # 模拟器序号
+    name: str  # 模拟器名称
+    path: str  # adb 路径；雷电模拟器则是 ldconsole
 
-class TRANSPORT(Enum):
-    USB = "usb"
-    LOCAL = "local"
-    ANY = "any"
+    @abstractmethod
+    def __init__(self, index: str, name: str, path: str) -> None:
+        """初始化模拟器信息"""
 
-
-class G_STATE(Enum):
-    """使用 get_state 方法获取的状态。"""
-
-    DEVICE = "device"
-    OFFLINE = "offline"
-    BOOTLOADER = "bootloader"
-    NOFOUND = "nofound"
-    UNKNOWN = "unknown"
-
-
-# adb -s emulator-5554 emu avd id
-# Pixel_4_XL_API_22
-# OK
-# ❯ adb -s emulator-5554 emu avd name
-# Pixel_4_XL_API_22
-# NOTE 设备重新启动之后，端口有可能会发生。
-# 启动模拟器，然后，通过 adb devices -l 获取所有的模拟器信息。
-# 在通过 adb -s emulator-5554 emu avd id，来重新映射模拟器序列号。
-# TODO 内置模拟器需要验证：模拟器的名字是固定的；序列号和传输ID是可变的。
-class DeviceInfo(EmuInfo):
-    """设备信息，通过 adb devices -l 获取以下信息"""
-
-    name: str  # 设备名，用于启动模拟器
-    serial: str  # 设备序列号，用于 adb
-    path: str | None  # adb 路径
-    emu_path: str | None  # emulator 路径
-
-    def __init__(
-        self,
-        name: str,
-        serial: str,
-        path: str | None = None,
-        emu_path: str | None = None,
-    ):
-        self.name = name
-        self.serial = serial
-        self.path = path
-        self.emu_path = emu_path  # 启动 avd
-
+    @abstractmethod
     def __eq__(self, __value: object) -> bool:
-        if not isinstance(__value, DeviceInfo):
-            return False
-        return self.name == __value.name
+        """ """
 
 
-class Device(Emu):
-    def __init__(self, info: DeviceInfo):
+class DeviceStatus(Enum):
+    """模拟器状态"""
+
+    STOP = "0"  # 停止
+    RUN = "1"  # 运行
+    HANG_UP = "2"  # 挂起
+    ERORR = "3"  # 模拟器执行 adb 命令没响应，则为错误，需要重启模拟器
+    ADB_ERR = "4"  # 模拟器已经启动，但是，adb 找不到设备
+    UNKNOWN = "5"  # 未知
+
+    @staticmethod
+    def get(value: str):
+        for item in DeviceStatus:
+            if item.value == value:
+                return item
+        return DeviceStatus.UNKNOWN
+
+
+class WorkStatus(Enum):
+    Free = 0
+    Busy = 1
+
+
+class Device(ABC):
+    def __init__(self, info: DeviceInfo) -> None:
         self.info = info
-        self.name = info.name
-        self._adb = ADB(info.path)
-        self._emulator = Emulator(info.emu_path)
-
-        # 设备初始化，则表示设备一定存在
-        state = self._get_state()
-        logger.debug(f"设备 {self.name} 状态: {state.value}")
-        if state != G_STATE.DEVICE:
-            raise RuntimeError(f"Device is {state.value}")
-
-        self.sdk = 0
+        self.launch()  # 默认启动
         self._init_sdk()
         self.android_version = "Unknown"
         if result := Android_API_MAP.get(self.sdk):
             self.android_version = result[0]
 
     def __str__(self) -> str:
-        return f"{self.name}-{self.android_version}({self.sdk})"
-
-    def launch(self):
-        self._emulator.start_avd(self.info.name)
-
-    def quit(self):
-        # TODO 杀死模拟器的方式
-        # @Pixel_XL_API_30，获取进程pid，杀死pid。
-        # 再通过emulator来启动。
-        # 雷电模拟器的启动方式不一样。
-        pass
-
-    def get_status(self):
-        pass
-
-    def check_device_status(self, num=5):
-        """执行命令之前，先确认一下设备的状态。
-
-        Args:
-            num (int, optional): _description_. Defaults to 5.
-
-        Returns:
-            _type_: _description_
-        """
-        state = self._get_state()
-        logger.debug(f"check_device_status - {self.name} 状态 : {state.value}")
-        if state == G_STATE.DEVICE:
-            return True
-
-        counter = 0
-        is_ok = False
-        while counter < num:
-            counter += 1
-            devices = self._adb.get_devices()
-            for item in devices:
-                if item[0] == self.name and item[1] == "device":
-                    is_ok = True
-                    break
-
-            if is_ok:
-                break
-
-        return is_ok
-
-    def _get_state(self):
-        output, error = self._adb.run_cmd(["get-state"])
-        # output: ['device']
-        # error: error: device offline
-        # error: device 'emulator-5556' not found
-
-        output = "".join(output) + error
-
-        # 设备丢失，需要等待，或者重启 adb
-        if "not found" in error:
-            return G_STATE.NOFOUND
-
-        if "device" in output:
-            return G_STATE.DEVICE
-
-        # 设备无法控制
-        if "offline" in output:
-            return G_STATE.DEVICE
-
-        # 设备可以重启
-        if "bootloader" in output:
-            return G_STATE.BOOTLOADER
-
-        return G_STATE.UNKNOWN
-
-    def adb_shell(self, cmd: str | list, encoding: str | None = None):
-        logger.debug(f"run shell cmd : {cmd}")
-        if not self.check_device_status():
-            raise RuntimeError(f"{self.name} 设备丢失。")
-        if isinstance(cmd, str):
-            cmd = cmd.split()
-        return self._adb.run_shell_cmd(self.info.serial, cmd)
-
-    def adb(self, cmd: str | list):
-        logger.debug(f"run cmd : {str(cmd)}")
-        if not self.check_device_status():
-            raise RuntimeError(f"{self.name} 设备丢失。")
-        return self._adb.run_cmd(cmd)
+        return f"{self.info.name}-{self.android_version}({self.sdk})"
 
     def _init_sdk(self):
+        logger.debug(f"Emu - 初始化模拟器 {self.info.name} SDK")
         output, _ = self.adb_shell(["getprop", "ro.build.version.sdk"])
         if isinstance(output, str):
             self.sdk = int(output)
@@ -181,105 +71,259 @@ class Device(Emu):
             self.sdk = int(output[0])
         return self.sdk
 
-    def is_ok(self):
+    def launch(self):
+        """启动模拟器"""
+        pass
+
+    def close(self):
+        """关闭模拟器"""
+        pass
+
+    def reboot(self):
+        """重启模拟器"""
+        pass
+
+    def get_status(self) -> DeviceStatus:
+        """获取模拟器状态"""
+        return DeviceStatus.UNKNOWN
+
+    def is_crashed(self):
+        """判断模拟器是否没响应，如果没响应，则定义为模拟器崩溃"""
         try:
             # 点击HOME键，超过5秒没反应
             func_timeout(5, self.home)
         except FunctionTimedOut:
+            return True
+        return False
+
+    def install_app(self, apk_path: str):
+        """安装apk
+
+        Args:
+            apk_path (str): apk 路径
+
+        Returns:
+            tuple: (is_success, output)
+        """
+        cmd = ["install", "-r", "-g", "-t", apk_path]
+        if self.sdk < 26:
+            cmd = ["install", "-r", "-t", apk_path]
+        output, _ = self.adb(cmd)
+
+        return "Success" in output, output
+
+    def uninstall_app(self, package_name: str):
+        """卸载应用"""
+        cmd = ["uninstall", package_name]
+        output, error = self.adb(cmd)
+        if "Success" in output:
+            return True
+        logger.error("".join(cmd))
+        logger.error(output)
+        logger.error(error, stack_info=True)
+
+    def run_app(self, package: str) -> bool:
+        """启动一个应用
+
+        Args:
+            package (str): 应用包名
+
+        Returns:
+            bool: 如果返回True，表示存在主界面；如果返回False，表示不存在主界面
+        """
+        out, _ = self.adb_shell("dumpsys package {}".format(package))
+        out = out.strip()
+
+        activity_start = out.find("android.intent.action.MAIN:")
+        if activity_start == -1:
             return False
+
+        # android.intent.action.MAIN:\n\n，从这个字符串的尾部开始找
+        activity_start += 31
+        activity_end = out.find("\n", activity_start)
+
+        activity_name = None
+        for item in out[activity_start:activity_end].strip().split():
+            if "/" in item:
+                activity_name = item
+                break
+        if activity_name is None:
+            return False
+
+        cmd = ["am", "start", "-n", f"{activity_name}"]
+        self.adb_shell(cmd)
         return True
 
-    def wait_for(self, state: STATE, transport: TRANSPORT = TRANSPORT.ANY):
-        cmd = "wait-for"
-        if transport != TRANSPORT.ANY:
-            cmd += f"-{transport.value}"
-        cmd += f"-{state}"
-        output, error = self.adb([cmd])
-        return output, error
+    def kill_app(self, package: str):
+        self.adb_shell(f"am force-stop {package}")
 
-    def reboot(self):
-        self.adb_shell(["reboot"])
-        sleep(5)
+    def pull(self, remote: str, local: str):
+        """将文件从模拟器下载到本地"""
+        cmd = ["pull", remote, local]
+        output, error = self.adb(cmd)
+        output = "".join(output)
+        if "pulled" in output:
+            return True
+        logger.error("".join(cmd))
+        logger.error(output)
+        logger.error(error)
 
-    def is_boot_completed(self) -> bool:
-        """判断设备是否处于开机状态"""
-        output, _ = self.adb_shell(["getprop", "sys.boot_completed"])
-        return "1" in output
+    def push(self, local: str, remote: str):
+        """将文件从本地上传到模拟器"""
+        self.adb(["push", local, remote])
+
+    def adb(self, cmd: str | list) -> tuple[str, str]:
+        """执行 adb 命令"""
+        return "", ""
+
+    @abstractmethod
+    def adb_shell(
+        self, cmd: str | list, encoding: str | None = None
+    ) -> tuple[str, str]:
+        """执行 adb shell 命令"""
+        logger.error("Emu - adb shell 命令未实现")
+
+    def rm(self, path: str, isDir: bool = False, force: bool = False):
+        """删除文件
+
+        Args:
+            path (str): 文件路径
+            force (bool, optional): 是否强制删除，默认否. Defaults to False.
+        """
+        cmd = ["rm"]
+        if isDir:
+            cmd.append("-r")
+        if force:
+            cmd.append("-f")
+        cmd.append(path)
+        self.adb_shell(cmd)
+
+    def ls(self, path: str):
+        cmd = ["ls", path]
+        output, _ = self.adb_shell(cmd)
+        return output
+
+    def mkdir(self, path):
+        self.adb_shell(["mkdir", path])
+
+    def ps(self):
+        output, _ = self.adb_shell(["ps"])
+        return output
+
+    def pidof(self, process_name):
+        output, _ = self.adb_shell(["pidof", process_name])
+        output = output.strip()
+        if "pidof: not found" in output:
+            output, _ = self.adb_shell(["ps"])
+            lines = output.splitlines()
+            for line in lines:
+                parts = line.split()
+                if parts[-1] == process_name:
+                    return int(parts[1])
+            return
+        return None if output == "" else int(output)
+
+    def killall(self, process_name):
+        output, _ = self.adb_shell(["killall", process_name])
+        return output
+
+    def kill(self, pid):
+        cmd = ["kill", str(pid)]
+        self.adb_shell(cmd)
+
+    def dumpsys_window_windows(self):
+        cmd = ["dumpsys", "window", "windows"]
+        output, _ = self.adb_shell(cmd)
+        return output
+
+    def tap(self, x: int, y: int):
+        cmd = ["input", "tap", str(x), str(y)]
+        self.adb_shell(cmd)
+        sleep(0.5)
+
+    def long_press(self, x: int, y: int):
+        self.swipe(x, y, x, y, 750)
+
+    def swipe(self, x1: int, y1: int, x2: int, y2: int, time: int | None = None):
+        cmd = ["input", "swipe", str(x1), str(y1), str(x2), str(y2)]
+        if time:
+            cmd.append(str(time))
+        self.adb_shell(cmd)
+        sleep(0.5)
+
+    def input_keyevent(self, keyevent: KeyEvent):
+        cmd = ["input", "keyevent", str(keyevent.value)]
+        self.adb_shell(cmd)
+        sleep(0.5)
+
+    def input_text(self, txt: str):
+        cmd = ["input", "text", txt]
+        self.adb_shell(cmd)
+        sleep(0.5)
+
+    def home(self):
+        self.input_keyevent(KeyEvent.KEYCODE_HOME)
+
+    def back(self):
+        self.input_keyevent(KeyEvent.KEYCODE_BACK)
+
+    def delete(self):
+        self.input_keyevent(KeyEvent.KEYCODE_DEL)
 
 
 class DeviceManager:
-    def __init__(self, adb_path: str | None = None):
-        self._adb = ADB(adb_path)
-        self._devices = {}
-        self._init()
+    """
+    只能管理 Android 同版的模拟器，不同版本，无法执行 adb。
+    1. 根据已知设备初始化。
+    2. 增加设备。
+    3. 删除设备。
+    """
 
-    def _init(self):
-        self._devices.clear()
-        count = 0
-        logger.debug("正在初始化模拟器...")
-        while count < 5:
-            count += 1
-            if self._check_devices():
+    # 传入的不应该是信息？而是一个具体模拟器对象
+    def __init__(self, devices: Sequence[Device]):
+        self._devices: list[Device] = list(devices)
+        self._device_map: dict[Device, WorkStatus] = {}
+        self._device_map.clear()
+        for dev in devices:
+            self._device_map[dev] = WorkStatus.Free
+            if dev.get_status() is not DeviceStatus.RUN:
+                dev.launch()
+
+    # TODO 雷电模拟器每次启动后，adb 必须要杀死重启 - 重新执行 adb 命令即可。
+    # adb 影响所有的模拟器链接
+    # 保留一个线程，作为检测 adb 是否有效。
+    def check_adb(self):
+        while True:
+            for device in self._device_map:
+                out, err = device.adb_shell(["getprop", "ro.build.version.sdk"])
+                print("out", out)
+                print("err", err)
+
+    def add(self, emu: Device):
+        if emu.get_status() is not DeviceStatus.RUN:
+            emu.launch()
+        self._device_map[emu] = WorkStatus.Free
+
+    def remove(self, dev: Device):
+        self._devices.remove(dev)
+        for device in self._device_map:
+            if device.info == dev:
+                device.close()
+                self._device_map.pop(device)
                 break
-        logger.debug("初始完毕")
-        self.update()
-
-    def _check_devices(self):
-        devices = self._adb.get_devices()
-        if devices is None:
-            return
-        flag = True
-        for item in devices:
-            if item is None:
-                continue
-
-            if item[1] == "offline":
-                flag = False
-                break
-            if ":" in item:
-                flag = False
-                break
-
-        if flag:
-            return flag
-
-        self._adb.restart_server(True)
-        return flag
 
     def get_total(self) -> int:
-        return len(self._devices)
+        return len(self._device_map)
 
     def get_free_device(self) -> Device | None:
-        for device in self._devices:
-            if self._devices[device] == DeviceState.Free:
-                self._devices[device] = DeviceState.Busy
+        for device in self._device_map:
+            if self._device_map[device] == WorkStatus.Free:
+                self._device_map[device] = WorkStatus.Busy
                 logger.debug(f"free device: {device}")
                 return device
+        return None
 
     def free_busy_device(self, device: Device):
-        if device not in self._devices:
+        if device not in self._device_map:
             return
-        self._devices[device] = DeviceState.Free
-
-    def update(self):
-        devices = self._adb.get_devices()
-        if devices is None:
-            return
-
-        for item in devices:
-            name = item[0]
-            if item[1] != "device":
-                logger.error(f"设备 {name} offline.")
-                continue
-
-            try:
-                logger.debug(f"开始初始化设备 {name}")
-                device = Device(name)
-            except Exception:
-                logger.error(f"设备 {name} 找不到", stack_info=True)
-                continue
-
-            if device in self._devices:
-                logger.error(f"设备 {name} 已经存在")
-                continue
-            self._devices[device] = DeviceState.Free
+        self._device_map[device] = WorkStatus.Free

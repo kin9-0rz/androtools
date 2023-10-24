@@ -3,7 +3,7 @@ import shutil
 from time import sleep
 
 from androtools.android_sdk import CMD
-from androtools.core.emu import Emu, EmuInfo, EmuStatus
+from androtools.core.device import Device, DeviceInfo, DeviceStatus
 
 
 class NoxADB(CMD):
@@ -54,7 +54,7 @@ class NoxADB(CMD):
         return self.adb(idx, f"shell {cmd}", encoding=encoding)
 
 
-class NoxPlayerInfo(EmuInfo):
+class NoxPlayerInfo(DeviceInfo):
     def __init__(self, index: str, name: str, path: str) -> None:
         self.index = index
         self.name = name
@@ -67,7 +67,7 @@ class NoxPlayerInfo(EmuInfo):
         return self.index == __value.index and self.path == __value.path
 
 
-class NoxPlayer(Emu):
+class NoxPlayer(Device):
     def __init__(self, info: NoxPlayerInfo) -> None:
         self.index = info.index
         self.name = info.name
@@ -78,7 +78,7 @@ class NoxPlayer(Emu):
         self.nox_adb.launch_device(self.index)
         while True:
             r = self.get_status()
-            if r is EmuStatus.RUN:
+            if r is DeviceStatus.RUN:
                 break
             sleep(1)
         sleep(10)
@@ -87,7 +87,7 @@ class NoxPlayer(Emu):
         self.nox_adb.quit_device(self.index)
         while True:
             r = self.get_status()
-            if r is EmuStatus.STOP:
+            if r is DeviceStatus.STOP:
                 break
             sleep(1)
 
@@ -95,24 +95,24 @@ class NoxPlayer(Emu):
         self.nox_adb.reboot_device(self.index)
         while True:
             r = self.get_status()
-            if r is EmuStatus.RUN:
+            if r is DeviceStatus.RUN:
                 break
             sleep(1)
         sleep(10)
 
     def get_status(self):
-        status = EmuStatus.UNKNOWN
+        status = DeviceStatus.UNKNOWN
         out, _ = self.nox_adb.list_devices()
         for line in out.strip().split("\n"):
             if self.name not in line:
                 continue
             parts = line.split(",")
-            status = EmuStatus.get(parts[4])
+            status = DeviceStatus.get(parts[4])
             break
 
-        if status is EmuStatus.RUN:
+        if status is DeviceStatus.RUN:
             if self.is_crashed():
-                status = EmuStatus.ERORR
+                status = DeviceStatus.ERORR
 
         return status
 

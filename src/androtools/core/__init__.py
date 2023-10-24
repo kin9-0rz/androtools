@@ -1,10 +1,8 @@
 from androtools.core.constants import Android_API_MAP, KeyEvent
-from androtools.core.device import Device, DeviceManager, DeviceState
+from androtools.core.google import GEmu
 
 __all__ = [
-    "DeviceManager",
-    "Device",
-    "DeviceState",
+    "GEmu",
     "KeyEvent",
     "Android_API_MAP",
 ]

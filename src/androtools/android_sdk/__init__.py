@@ -39,8 +39,8 @@ class CMD:
             self.reset()
         return result
 
-    def run_async(self, is_reset: bool = True):
-        result = self._run_async(self._args)
+    def run_daemon(self, is_reset: bool = True):
+        result = self._run_daemon(self._args)
         if is_reset:
             self.reset()
         return result
@@ -51,46 +51,42 @@ class CMD:
         for item in cmd:
             assert isinstance(item, str)
         args = self._build_cmds(cmd)
-        logger.debug("run_cmd : ", " ".join(args))
+        logger.debug("CMD [_run] " + " ".join(args))
+
         r = subprocess.run(
             args,
             shell=shell,  # 例如使用通配符、管道或重定向时，须使用shell
             encoding=encoding,
+            errors="ignore",
             capture_output=True,
             text=True,
+            timeout=3,
+            check=True,
         )
+
         return r.stdout, r.stderr
 
-    def _run_async(self, args):
-        """运行非堵塞命令"""
+    def _run_daemon(self, args):
+        """运行后台命令，直接运行命令，不需要获取结果。"""
         cmd_list = self._build_cmds(args)
+        logger.debug("CMD [_run_deamon] " + " ".join(cmd_list))
         try:
-            adb_proc = subprocess.Popen(
+            proc = subprocess.Popen(
                 cmd_list,
-                stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 shell=False,
             )
-            output, error = adb_proc.communicate()
-            output = output.decode("utf-8")
-            error = error.decode("utf-8")
 
-            if adb_proc.returncode == 1:
-                logger.error(cmd_list)
-                return output, error
-
-            if len(output) == 0:
-                output = None
-            else:
-                output = [x.strip() for x in output.split("\n") if len(x.strip()) > 0]
+            try:
+                proc.wait(10)
+            except Exception:
+                pass
 
         except Exception as err:
             logger.error(cmd_list)
             logger.error(err)
             raise err
-
-        return output, error
 
     # TODO 这种方式感觉不大好，调用过于繁琐，最好能够直接使用。
     def run_subcmd(self, scmd: SubSubCommand, args: list):

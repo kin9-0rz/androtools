@@ -1,7 +1,7 @@
 import pytest
 from androtools.android_sdk.emulator import Emulator
 from androtools.android_sdk.platform_tools import ADB
-from androtools.core.device import Device, DeviceInfo, DeviceManager
+from androtools.core.google import GEmu, GEmuInfo
 
 
 @pytest.fixture
@@ -12,15 +12,16 @@ def device():
     assert isinstance(device_names, list)
     assert len(device_names) >= 1
 
-    di = DeviceInfo(
+    di = GEmuInfo(
         name="Pixel_XL_API_30",
         serial="emulator-5554",
+        path="",
     )
 
-    return Device(di)
+    return GEmu(di)
 
 
-def test_ls(device: Device):
+def test_ls(device: GEmu):
     if device is None:
         return
     output = device.ls("/")
@@ -28,14 +29,14 @@ def test_ls(device: Device):
     assert "system" in output
 
 
-def test_ps(device: Device):
+def test_ps(device: GEmu):
     if device is None:
         return
     output = device.ps()
     assert "zygote" in output
 
 
-def test_pidof(device: Device):
+def test_pidof(device: GEmu):
     if device is None:
         return
     output = device.pidof("zygote")
