@@ -263,3 +263,56 @@ class Emu(ABC):
 
     def delete(self):
         self.input_keyevent(KeyEvent.KEYCODE_DEL)
+
+
+class EmuManger:
+    """
+    只能管理 Android 同版的模拟器，不同版本，无法执行 adb。
+    1. 根据已知设备初始化。
+    2. 增加设备。
+    3. 删除设备。
+    """
+
+    def __init__(self, infos: list[EmuInfo]):
+        self._infos = infos
+        self._devices: dict[Emu, WorkStatus] = {}
+        self._init()
+
+    def _init(self):
+        self._devices.clear()
+        for info in self._infos:
+            ldp = Emu(info)
+            self._devices[ldp] = WorkStatus.Free
+            if ldp.get_status() is not EmuStatus.RUN:
+                ldp.launch()
+
+    def add(self, info: EmuInfo):
+        self._infos.append(info)
+        ldp = Emu(info)
+        if ldp.get_status() is not EmuStatus.RUN:
+            ldp.launch()
+        self._devices[ldp] = WorkStatus.Free
+
+    def remove(self, info: EmuInfo):
+        self._infos.remove(info)
+        for device in self._devices:
+            if device.info == info:
+                device.close()
+                self._devices.pop(device)
+                break
+
+    def get_total(self) -> int:
+        return len(self._devices)
+
+    def get_free_device(self) -> Emu | None:
+        for device in self._devices:
+            if self._devices[device] == WorkStatus.Free:
+                self._devices[device] = WorkStatus.Busy
+                logger.debug(f"free device: {device}")
+                return device
+        return None
+
+    def free_busy_device(self, device: Emu):
+        if device not in self._devices:
+            return
+        self._devices[device] = WorkStatus.Free
