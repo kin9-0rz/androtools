@@ -2,6 +2,7 @@
 from abc import ABC, abstractmethod
 from enum import Enum
 from time import sleep
+from typing import Sequence
 
 from func_timeout import FunctionTimedOut, func_timeout
 from loguru import logger
@@ -22,7 +23,7 @@ class EmuInfo(ABC):
 
     @abstractmethod
     def __eq__(self, __value: object) -> bool:
-        """判断是否为同一个模拟器"""
+        """ """
 
 
 class EmuStatus(Enum):
@@ -265,7 +266,7 @@ class Emu(ABC):
         self.input_keyevent(KeyEvent.KEYCODE_DEL)
 
 
-class EmuManger:
+class EmuManager:
     """
     只能管理 Android 同版的模拟器，不同版本，无法执行 adb。
     1. 根据已知设备初始化。
@@ -273,7 +274,7 @@ class EmuManger:
     3. 删除设备。
     """
 
-    def __init__(self, infos: list[EmuInfo]):
+    def __init__(self, infos: Sequence[EmuInfo]):
         self._infos = infos
         self._devices: dict[Emu, WorkStatus] = {}
         self._init()
