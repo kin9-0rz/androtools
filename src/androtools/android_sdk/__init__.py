@@ -60,8 +60,6 @@ class CMD:
             errors="ignore",
             capture_output=True,
             text=True,
-            timeout=3,
-            check=True,
         )
 
         return r.stdout, r.stderr

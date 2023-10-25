@@ -289,16 +289,6 @@ class DeviceManager:
             if dev.get_status() is not DeviceStatus.RUN:
                 dev.launch()
 
-    # TODO 雷电模拟器每次启动后，adb 必须要杀死重启 - 重新执行 adb 命令即可。
-    # adb 影响所有的模拟器链接
-    # 保留一个线程，作为检测 adb 是否有效。
-    def check_adb(self):
-        while True:
-            for device in self._device_map:
-                out, err = device.adb_shell(["getprop", "ro.build.version.sdk"])
-                print("out", out)
-                print("err", err)
-
     def add(self, emu: Device):
         if emu.get_status() is not DeviceStatus.RUN:
             emu.launch()

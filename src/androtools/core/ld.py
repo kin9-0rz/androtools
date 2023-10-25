@@ -2,8 +2,9 @@
 import shutil
 from time import sleep
 
-from loguru import logger
 import psutil
+from loguru import logger
+
 from androtools.android_sdk import CMD
 from androtools.core.device import Device, DeviceInfo, DeviceStatus
 
@@ -151,8 +152,6 @@ class LDPlayer(Device):
 
         if status is DeviceStatus.RUN:
             out, err = self.adb_shell("ps")
-            print(out[:80], ">>>")
-            print(err, "err")
             if "offline" in out or "not found" in out:
                 status = DeviceStatus.ADB_ERR
 
