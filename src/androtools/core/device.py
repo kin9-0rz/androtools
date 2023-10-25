@@ -1,6 +1,5 @@
 # Android模拟器、雷电模拟器的基类
 from abc import ABC, abstractmethod
-from concurrent.futures import thread
 from enum import Enum
 from time import sleep
 from typing import Sequence
