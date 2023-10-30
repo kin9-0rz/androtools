@@ -77,13 +77,13 @@ class LDPlayerInfo(DeviceInfo):
     def __init__(self, index: str, name: str, path: str) -> None:
         self.index = index
         self.name = name
-        self.path = path
+        self.console_path = path
 
     def __eq__(self, __value: object) -> bool:
         if not isinstance(__value, LDPlayerInfo):
             return False
 
-        return self.index == __value.index and self.path == __value.path
+        return self.index == __value.index and self.console_path == __value.console_path
 
 
 def find_adb():
@@ -94,10 +94,16 @@ def find_adb():
 
 
 class LDPlayer(Device):
+    """
+    adb 有两种选择
+    1. 使用 adb
+    2. 使用 console的adb命令。
+    """
+
     def __init__(self, info: LDPlayerInfo) -> None:
         self.index = info.index
         self.name = info.name
-        self.ldconsole = LDConsole(info.path)
+        self.ldconsole = LDConsole(info.console_path)
         super().__init__(info)
 
     def launch(self):

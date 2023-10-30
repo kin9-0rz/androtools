@@ -36,22 +36,33 @@ class ADB(CMD):
 
         super().__init__(path)
 
-    def run_cmd(self, cmd: str | list):
+    def run_cmd(self, cmd: list[str]):
         logger.debug(f"run_cmd : {cmd}")
-        if isinstance(cmd, str):
-            cmd = cmd.split()
+        assert isinstance(cmd, list)
         return self._run(cmd)
 
-    def help(self):
-        output, _ = self.run_cmd([])
-        logger.debug(output)
-
-    def run_shell_cmd(self, serial: str | None, cmd: list):
+    def run_shell_cmd(self, serial: str | None, cmd: list[str]):
         assert isinstance(cmd, list)
         cmd = ["shell"] + cmd
         if serial is not None:
             cmd = ["-s", serial] + cmd
+
         return self.run_cmd(cmd)
+
+    def run_cmd_daemon(self, cmd: list[str]):
+        logger.debug(f"run_cmd : {cmd}")
+        return self._run_daemon(cmd)
+
+    def run_shell_cmd_daemon(self, serial: str | None, cmd: list[str]):
+        assert isinstance(cmd, list)
+        cmd = ["shell"] + cmd
+        if serial is not None:
+            cmd = ["-s", serial] + cmd
+        return self._run_daemon(cmd)
+
+    def help(self):
+        output, _ = self.run_cmd([])
+        logger.debug(output)
 
     def get_devices(self):
         devices = []
@@ -123,6 +134,7 @@ class FastBoot(CMD):
 
     def help(self):
         # NOTE -h 命令不支持 shell
+        assert self.bin_path is not None
         result, _ = self._run([self.bin_path, "-h"])
         logger.debug(result)
 

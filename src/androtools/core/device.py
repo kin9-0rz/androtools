@@ -7,23 +7,43 @@ from typing import Sequence
 from func_timeout import FunctionTimedOut, func_timeout
 from loguru import logger
 
+from androtools.android_sdk import CMD
+from androtools.android_sdk.platform_tools import ADB
 from androtools.core.constants import Android_API_MAP, KeyEvent
 
 
 class DeviceInfo(ABC):
     """模拟器信息"""
 
-    index: str  # 模拟器序号
-    name: str  # 模拟器名称
-    path: str  # adb 路径；雷电模拟器则是 ldconsole
+    index: str  # 模拟器序号，雷电模拟器、夜神模拟器的序号
+    serial: str | None  # 模拟器序列号，adb -s 的操作对象
+    name: str  # 模拟器名称，它可以修改。
+    adb_path: str  # adb 路径
+    console_path: str  # 模拟器控制器；雷电模拟器则是 ldconsole
 
-    @abstractmethod
-    def __init__(self, index: str, name: str, path: str) -> None:
-        """初始化模拟器信息"""
+    def __init__(
+        self,
+        index: str,
+        serial: str | None,
+        name: str,
+        adb_path: str,
+        console_path: str,
+    ) -> None:
+        self.index = index
+        self.serial = serial
+        self.name = name
+        self.adb_path = adb_path
+        self.console_path = console_path
 
-    @abstractmethod
     def __eq__(self, __value: object) -> bool:
-        """ """
+        if not isinstance(__value, DeviceInfo):
+            return False
+
+        return (
+            self.index == __value.index
+            and self.adb_path == __value.adb_path
+            and self.console_path == __value.console_path
+        )
 
 
 class DeviceStatus(Enum):
@@ -49,17 +69,56 @@ class WorkStatus(Enum):
     Busy = 1
 
 
+class DeviceConsole(CMD):
+    """模拟器控制台，用于控制模拟器的启动和关闭。"""
+
+    @abstractmethod
+    def __init__(self, console_path: str) -> None:
+        self.console_path = console_path
+
+    @abstractmethod
+    def launch_device(self, idx: int | str):
+        """启动模拟器"""
+
+    @abstractmethod
+    def reboot_device(self, idx: int | str):
+        """重启模拟器"""
+
+    @abstractmethod
+    def quit_device(self, idx: int | str):
+        """关闭模拟器"""
+
+    @abstractmethod
+    def quit_all_devices(self):
+        """关闭所有的模拟器"""
+
+    @abstractmethod
+    def list_devices(self):
+        """列出所有模拟器信息"""
+
+
 class Device(ABC):
     def __init__(self, info: DeviceInfo) -> None:
         self.info = info
+
+        self._adb_wrapper: ADB = ADB(info.adb_path)
+
         self.launch()  # 默认启动
         self._init_sdk()
         self.android_version = "Unknown"
         if result := Android_API_MAP.get(self.sdk):
             self.android_version = result[0]
 
+        self.serial = info.serial
+        if self.serial is None:
+            self._init_serial()
+
     def __str__(self) -> str:
         return f"{self.info.name}-{self.android_version}({self.sdk})"
+
+    @abstractmethod
+    def _init_serial(self):
+        pass
 
     def _init_sdk(self):
         logger.debug(f"Emu - 初始化模拟器 {self.info.name} SDK")
@@ -130,7 +189,7 @@ class Device(ABC):
         Returns:
             bool: 如果返回True，表示存在主界面；如果返回False，表示不存在主界面
         """
-        out, _ = self.adb_shell("dumpsys package {}".format(package))
+        out, _ = self.adb_shell(["dumpsys", "package", package])
         out = out.strip()
 
         activity_start = out.find("android.intent.action.MAIN:")
@@ -154,7 +213,7 @@ class Device(ABC):
         return True
 
     def kill_app(self, package: str):
-        self.adb_shell(f"am force-stop {package}")
+        self.adb_shell(["am", "force-stop", package])
 
     def pull(self, remote: str, local: str):
         """将文件从模拟器下载到本地"""
@@ -171,16 +230,14 @@ class Device(ABC):
         """将文件从本地上传到模拟器"""
         self.adb(["push", local, remote])
 
-    def adb(self, cmd: str | list) -> tuple[str, str]:
+    def adb(self, cmd: list) -> tuple[str, str]:
         """执行 adb 命令"""
-        return "", ""
+        return self._adb_wrapper.run_cmd(cmd)
 
-    @abstractmethod
-    def adb_shell(
-        self, cmd: str | list, encoding: str | None = None
-    ) -> tuple[str, str]:
+    def adb_shell(self, cmd: list[str], encoding: str | None = None) -> tuple[str, str]:
         """执行 adb shell 命令"""
-        logger.error("Emu - adb shell 命令未实现")
+        assert cmd is not None
+        return self._adb_wrapper.run_shell_cmd(self.info.serial, cmd)
 
     def rm(self, path: str, isDir: bool = False, force: bool = False):
         """删除文件

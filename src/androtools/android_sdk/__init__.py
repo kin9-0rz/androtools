@@ -21,7 +21,7 @@ class CMD:
     def reset(self):
         self._args.clear()
 
-    def _build_cmds(self, cmd: list) -> list:
+    def _build_cmds(self, cmd: list[str]) -> list:
         assert isinstance(cmd, list)
         return [self.bin_path] + cmd
 
@@ -29,7 +29,7 @@ class CMD:
         self._args.append(arg)
         return self
 
-    def build_args(self, args: list):
+    def build_args(self, args: list[str]):
         self._args += args
         return self
 
@@ -45,7 +45,7 @@ class CMD:
             self.reset()
         return result
 
-    def _run(self, cmd: list, shell: bool = False, encoding: str | None = None):
+    def _run(self, cmd: list[str], shell: bool = False, encoding: str | None = None):
         """运行阻塞命令"""
         assert isinstance(cmd, list)
         for item in cmd:
@@ -64,7 +64,7 @@ class CMD:
 
         return r.stdout, r.stderr
 
-    def _run_daemon(self, args):
+    def _run_daemon(self, args: list[str]):
         """运行后台命令，直接运行命令，不需要获取结果。"""
         cmd_list = self._build_cmds(args)
         logger.debug("CMD [_run_deamon] " + " ".join(cmd_list))

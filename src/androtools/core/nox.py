@@ -2,16 +2,16 @@
 import shutil
 from time import sleep
 
+import psutil
+
 from androtools.android_sdk import CMD
-from androtools.core.device import Device, DeviceInfo, DeviceStatus
+from androtools.android_sdk.platform_tools import ADB
+from androtools.core.device import Device, DeviceConsole, DeviceInfo, DeviceStatus
 
 
-class NoxADB(CMD):
-    def __init__(self, path=shutil.which("nox_adb.exe")):
-        super().__init__(path)
-
-    def help(self):
-        return self._run([])
+class NoxConsole(DeviceConsole):
+    def __init__(self, console_path=shutil.which("NoxConsole.exe")):
+        super().__init__(console_path)
 
     def launch_device(self, idx: int | str):
         return self._run(["launch", f"-index:{idx}"])
@@ -29,53 +29,73 @@ class NoxADB(CMD):
         """列出所有模拟器信息
 
         0. 索引
+        1. 虚拟机名称
         1. 标题
         2. 顶层窗口句柄
-        3. 绑定窗口句柄
-        4. 运行状态, 0-停止,1-运行,2-挂起
-        5. 进程ID, 不运行则为 -1.
-        6. VBox进程PID
-        7. 分辨率-宽
-        8. 分辨率-高
-        9. dpi
+        3. 工具栏窗口句柄
+        5. Nox进程，父进程。
+        6. 进程PID，NoxVMHandle Frontend；这个进程和adb连接。
 
         Returns:
             _type_: _description_
         """
         return self._run(["list"])
 
-    def adb(self, idx, cmd, encoding: str | None = None):
-        assert isinstance(cmd, str)
-        return self._run(["adb", f"--index{idx}", f"-command:{cmd}"], encoding=encoding)
-
-    def adb_shell(self, idx, cmd: str | list, encoding: str | None = None):
-        if isinstance(cmd, list):
-            cmd = " ".join(cmd)
-        return self.adb(idx, f"shell {cmd}", encoding=encoding)
-
 
 class NoxPlayerInfo(DeviceInfo):
-    def __init__(self, index: str, name: str, path: str) -> None:
-        self.index = index
-        self.name = name
-        self.path = path
-
-    def __eq__(self, __value: object) -> bool:
-        if not isinstance(__value, NoxPlayerInfo):
-            return False
-
-        return self.index == __value.index and self.path == __value.path
+    def __init__(
+        self,
+        index: str,
+        serial: str | None,
+        name: str,
+        adb_path: str,
+        console_path: str,
+    ) -> None:
+        super().__init__(index, serial, name, adb_path, console_path)
 
 
 class NoxPlayer(Device):
-    def __init__(self, info: NoxPlayerInfo) -> None:
-        self.index = info.index
-        self.name = info.name
-        self.nox_adb = NoxADB(info.path)
+    def __init__(self, info: DeviceInfo) -> None:
         super().__init__(info)
 
+        self.index = info.index
+        self.name = info.name
+        self.nox_console = NoxConsole(info.console_path)
+
+    def _init_serial(self):
+        out, _ = self.nox_console.list_devices()
+        pid = None
+        for item in out.split("\n"):
+            parts = item.split(",")
+            if self.index != parts[0]:
+                continue
+            pid = int(parts[5])
+            break
+
+        if pid is None:
+            raise ValueError("NoxPlayer not found")
+
+        ports = set()
+        net_con = psutil.net_connections()
+        for con_info in net_con:
+            if con_info.pid == pid and con_info.status == "LISTEN":
+                ports.add(con_info.laddr.port)  # type: ignore
+
+        out, _ = self._adb_wrapper.run_cmd(["devices", "-l"])
+        for line in out.strip().split("\n"):
+            if "List of devices attached" in line:
+                continue
+            parts = line.split()
+            serial = parts[0]
+            if int(serial.split(":")[-1]) in ports:
+                self.serial = serial
+                break
+
+        if self.serial is None:
+            raise ValueError("NoxPlayer could not find serial")
+
     def launch(self):
-        self.nox_adb.launch_device(self.index)
+        self.nox_console.launch_device(self.index)
         while True:
             r = self.get_status()
             if r is DeviceStatus.RUN:
@@ -84,7 +104,7 @@ class NoxPlayer(Device):
         sleep(10)
 
     def close(self):
-        self.nox_adb.quit_device(self.index)
+        self.nox_console.quit_device(self.index)
         while True:
             r = self.get_status()
             if r is DeviceStatus.STOP:
@@ -92,7 +112,7 @@ class NoxPlayer(Device):
             sleep(1)
 
     def reboot(self):
-        self.nox_adb.reboot_device(self.index)
+        self.nox_console.reboot_device(self.index)
         while True:
             r = self.get_status()
             if r is DeviceStatus.RUN:
@@ -102,12 +122,15 @@ class NoxPlayer(Device):
 
     def get_status(self):
         status = DeviceStatus.UNKNOWN
-        out, _ = self.nox_adb.list_devices()
+        out, _ = self.nox_console.list_devices()
         for line in out.strip().split("\n"):
             if self.name not in line:
                 continue
-            parts = line.split(",")
-            status = DeviceStatus.get(parts[4])
+            pid = line.split(",")[-1]
+            if pid == "-1":
+                status = DeviceStatus.STOP
+            else:
+                status = DeviceStatus.RUN
             break
 
         if status is DeviceStatus.RUN:
@@ -115,11 +138,3 @@ class NoxPlayer(Device):
                 status = DeviceStatus.ERORR
 
         return status
-
-    def adb(self, cmd: str | list, encoding: str | None = None):
-        if isinstance(cmd, list):
-            cmd = " ".join(cmd)
-        return self.nox_adb.adb(self.index, cmd, encoding=encoding)
-
-    def adb_shell(self, cmd: str | list, encoding: str | None = None):
-        return self.nox_adb.adb_shell(self.index, cmd, encoding=encoding)
