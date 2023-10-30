@@ -12,7 +12,7 @@ from androtools.android_sdk.platform_tools import ADB
 from androtools.core.constants import Android_API_MAP, KeyEvent
 
 
-class DeviceInfo(ABC):
+class DeviceInfo:
     """模拟器信息"""
 
     index: str  # 模拟器序号，雷电模拟器、夜神模拟器的序号
@@ -49,8 +49,9 @@ class DeviceInfo(ABC):
 class DeviceStatus(Enum):
     """模拟器状态"""
 
-    STOP = "0"  # 停止
-    RUN = "1"  # 运行
+    STOP = "-1"  # 停止
+    BOOT = "0"  # 设备启动
+    RUN = "1"  # 设备启动完毕，运行中。
     HANG_UP = "2"  # 挂起
     ERORR = "3"  # 模拟器执行 adb 命令没响应，则为错误，需要重启模拟器
     ADB_ERR = "4"  # 模拟器已经启动，但是，adb 找不到设备
@@ -72,52 +73,70 @@ class WorkStatus(Enum):
 class DeviceConsole(CMD):
     """模拟器控制台，用于控制模拟器的启动和关闭。"""
 
-    @abstractmethod
-    def __init__(self, console_path: str) -> None:
-        self.console_path = console_path
-
-    @abstractmethod
     def launch_device(self, idx: int | str):
         """启动模拟器"""
+        pass
 
-    @abstractmethod
     def reboot_device(self, idx: int | str):
         """重启模拟器"""
+        pass
 
-    @abstractmethod
     def quit_device(self, idx: int | str):
         """关闭模拟器"""
+        pass
 
-    @abstractmethod
     def quit_all_devices(self):
         """关闭所有的模拟器"""
+        pass
 
-    @abstractmethod
     def list_devices(self):
         """列出所有模拟器信息"""
+        pass
 
 
 class Device(ABC):
     def __init__(self, info: DeviceInfo) -> None:
         self.info = info
-
         self._adb_wrapper: ADB = ADB(info.adb_path)
+        self.serial = info.serial
 
-        self.launch()  # 默认启动
+        if not self.is_boot():
+            self.launch()
+
+        # TODO 设备启动后，需要判断是否已经准备好了。
+        # 如果已经知道 serial，我们能够可以利用 get_status 进行判断。
+        # 如果还没有 serial，则尝试获取。
+        if self.serial is None:
+            self._init_serial()
+
+        # TODO 判断设备是否已经完全启动。
+        status = self.get_status()
+        if status != DeviceStatus.RUN:
+            logger.debug(f"Device {self.info.name} is {status}.")
+            raise RuntimeError(f"Device {self.info.name} is not ready.")
+
         self._init_sdk()
         self.android_version = "Unknown"
         if result := Android_API_MAP.get(self.sdk):
             self.android_version = result[0]
-
-        self.serial = info.serial
-        if self.serial is None:
-            self._init_serial()
 
     def __str__(self) -> str:
         return f"{self.info.name}-{self.android_version}({self.sdk})"
 
     @abstractmethod
     def _init_serial(self):
+        # console list 获取本设备ID，如果无法获取，则启动设备。
+        # 是否已经启动，判断进程ID（PID）是否存在
+        # 通过PID获取监听端口集合
+
+        # 通过adb devices -l，获取设备序列号列表
+        # 如果在列表里面，则说明完全启动成功。
+
+        # 设备有几种状态：
+        # 停止
+        # 启动中，存在PID
+        # 启动完毕，
+
         pass
 
     def _init_sdk(self):
@@ -128,6 +147,10 @@ class Device(ABC):
         elif isinstance(output, list):
             self.sdk = int(output[0])
         return self.sdk
+
+    def is_boot(self):
+        """判断设备是否已经启动"""
+        pass
 
     def launch(self):
         """启动模拟器"""

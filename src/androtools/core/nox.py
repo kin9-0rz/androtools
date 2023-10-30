@@ -3,15 +3,14 @@ import shutil
 from time import sleep
 
 import psutil
+from loguru import logger
 
-from androtools.android_sdk import CMD
-from androtools.android_sdk.platform_tools import ADB
 from androtools.core.device import Device, DeviceConsole, DeviceInfo, DeviceStatus
 
 
 class NoxConsole(DeviceConsole):
-    def __init__(self, console_path=shutil.which("NoxConsole.exe")):
-        super().__init__(console_path)
+    def __init__(self, path=shutil.which("NoxConsole.exe")):
+        super().__init__(path)
 
     def launch_device(self, idx: int | str):
         return self._run(["launch", f"-index:{idx}"])
@@ -56,11 +55,10 @@ class NoxPlayerInfo(DeviceInfo):
 
 class NoxPlayer(Device):
     def __init__(self, info: DeviceInfo) -> None:
-        super().__init__(info)
-
         self.index = info.index
         self.name = info.name
         self.nox_console = NoxConsole(info.console_path)
+        super().__init__(info)
 
     def _init_serial(self):
         out, _ = self.nox_console.list_devices()
@@ -69,8 +67,10 @@ class NoxPlayer(Device):
             parts = item.split(",")
             if self.index != parts[0]:
                 continue
-            pid = int(parts[5])
+            pid = int(parts[-1])
             break
+
+        logger.debug(f"NoxPlayer {self.info.name} pid is {pid}")
 
         if pid is None:
             raise ValueError("NoxPlayer not found")
@@ -81,26 +81,28 @@ class NoxPlayer(Device):
             if con_info.pid == pid and con_info.status == "LISTEN":
                 ports.add(con_info.laddr.port)  # type: ignore
 
-        out, _ = self._adb_wrapper.run_cmd(["devices", "-l"])
-        for line in out.strip().split("\n"):
-            if "List of devices attached" in line:
-                continue
-            parts = line.split()
-            serial = parts[0]
-            if int(serial.split(":")[-1]) in ports:
-                self.serial = serial
-                break
+        # TODO 如果找不到序列号，怎么处理比较合适？
+        while True:
+            serial = None
+            out, _ = self._adb_wrapper.run_cmd(["devices", "-l"])
+            for line in out.strip().split("\n"):
+                if "List of devices attached" in line:
+                    continue
+                parts = line.split()
+                serial = parts[0]
+                if int(serial.split(":")[-1]) in ports:
+                    break
 
-        if self.serial is None:
-            raise ValueError("NoxPlayer could not find serial")
+            if serial is None:
+                sleep(3)
+                continue
+
+            self.info.serial = serial
+            logger.debug(f"NoxPlayer {self.info.name} serial is {self.info.serial}")
+            break
 
     def launch(self):
         self.nox_console.launch_device(self.index)
-        while True:
-            r = self.get_status()
-            if r is DeviceStatus.RUN:
-                break
-            sleep(1)
         sleep(10)
 
     def close(self):
@@ -120,7 +122,21 @@ class NoxPlayer(Device):
             sleep(1)
         sleep(10)
 
+    def is_boot(self):
+        out, _ = self.nox_console.list_devices()
+        for line in out.strip().split("\n"):
+            if self.name not in line:
+                continue
+
+            pid = line.split(",")[-1]
+            if pid == "-1":
+                return False
+
+        return True
+
     def get_status(self):
+        assert self.info.serial is not None
+
         status = DeviceStatus.UNKNOWN
         out, _ = self.nox_console.list_devices()
         for line in out.strip().split("\n"):
@@ -130,11 +146,29 @@ class NoxPlayer(Device):
             if pid == "-1":
                 status = DeviceStatus.STOP
             else:
-                status = DeviceStatus.RUN
+                status = DeviceStatus.BOOT
             break
 
-        if status is DeviceStatus.RUN:
+        if status is DeviceStatus.BOOT:
             if self.is_crashed():
                 status = DeviceStatus.ERORR
+
+        if status is not DeviceStatus.BOOT:
+            return status
+
+        logger.debug("device %s status: %s" % (self.name, status))
+        out, err = self.adb_shell(["getprop", "dev.boot_completed"])
+        if "error:" in err:
+            status = DeviceStatus.ERORR
+        if "1" in out:
+            status = DeviceStatus.RUN
+
+        out, err = self.adb_shell(["getprop", "sys.boot_completed"])
+        if "1" in out:
+            status = DeviceStatus.RUN
+
+        out, err = self.adb_shell(["getprop", "init.svc.bootanim"])
+        if "stopped" in out:
+            status = DeviceStatus.RUN
 
         return status
