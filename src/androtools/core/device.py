@@ -2,9 +2,10 @@
 from abc import ABC, abstractmethod
 from enum import Enum
 from time import sleep
-from typing import Sequence
+from typing import Literal, Sequence
 
-from func_timeout import FunctionTimedOut, func_timeout
+import func_timeout
+from func_timeout import FunctionTimedOut
 from loguru import logger
 
 from androtools.android_sdk import CMD
@@ -172,7 +173,7 @@ class Device(ABC):
         """判断模拟器是否没响应，如果没响应，则定义为模拟器崩溃"""
         try:
             # 点击HOME键，超过5秒没反应
-            func_timeout(5, self.home)
+            func_timeout.func_timeout(5, self.home)
         except FunctionTimedOut:
             return True
         return False
@@ -348,6 +349,38 @@ class Device(ABC):
 
     def delete(self):
         self.input_keyevent(KeyEvent.KEYCODE_DEL)
+
+    # ---------------------------------------------------------------------------- #
+    #                             截图、dump等Android相关的命令                       #
+    # ---------------------------------------------------------------------------- #
+    def list_packages(self, flag: Literal[-1, 0, 1] = -1) -> str:
+        """列出设备的应用列表
+
+        Args:
+            flag (Literal[, optional): 0 表示第三方应用，1 表示系统应用。默认 -1 表示所有的应用.
+
+        Returns:
+            str: _description_
+        """
+        cmd = ["pm", "list", "packages"]
+        if flag == 0:
+            cmd.append("-3")
+        elif flag == 1:
+            cmd.append("-s")
+        output, _ = self.adb_shell(cmd)
+        return output
+
+    def screencap(self, save_dir: str, filename: str):
+        """截图，并保存到指定目录
+
+        Args:
+            save_dir (str): 图片存放目录
+            filename (str): 图片名
+        """
+        self.adb_shell(["mkdir", "-p", save_dir])
+        output = save_dir + "/" + filename
+        cmd = ["screencap", output]
+        self.adb_shell(cmd)
 
 
 class DeviceManager:
