@@ -353,7 +353,7 @@ class Device(ABC):
     # ---------------------------------------------------------------------------- #
     #                             截图、dump等Android相关的命令                       #
     # ---------------------------------------------------------------------------- #
-    def list_packages(self, flag: Literal[-1, 0, 1] = -1) -> str:
+    def list_packages(self, flag: Literal[-1, 0, 1] = -1) -> list[str]:
         """列出设备的应用列表
 
         Args:
@@ -368,7 +368,7 @@ class Device(ABC):
         elif flag == 1:
             cmd.append("-s")
         output, _ = self.adb_shell(cmd)
-        return output
+        return output.strip().replace("package:", "").split()
 
     def screencap(self, save_dir: str, filename: str):
         """截图，并保存到指定目录
