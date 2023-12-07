@@ -357,10 +357,10 @@ class Device(ABC):
         """列出设备的应用列表
 
         Args:
-            flag (Literal[, optional): 0 表示第三方应用，1 表示系统应用。默认 -1 表示所有的应用.
+            flag (Literal[-1, 0, 1], 可选): `0` 表示第三方应用，`1` 表示系统应用，`-1` 表示所有的应用；默认 `-1`。
 
         Returns:
-            str: _description_
+            list[str]: 包名列表
         """
         cmd = ["pm", "list", "packages"]
         if flag == 0:

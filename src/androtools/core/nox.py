@@ -86,6 +86,10 @@ class NoxPlayer(Device):
             serial = None
             out, _ = self._adb_wrapper.run_cmd(["devices", "-l"])
             for line in out.strip().split("\n"):
+                if "daemon not running" in line:
+                    sleep(3)
+                    break
+
                 if "List of devices attached" in line:
                     continue
                 parts = line.split()
