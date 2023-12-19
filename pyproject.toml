@@ -1,6 +1,6 @@
 [project]
 name = "androtools"
-version = "0.1.36"
+version = "0.1.37"
 description = "一个对Android SDK相关的命令封装的库"
 authors = [{ name = "kin9-0rz", email = "kin9-0rz@outlook.com" }]
 readme = "README.md"
