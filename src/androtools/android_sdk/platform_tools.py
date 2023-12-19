@@ -36,19 +36,18 @@ class ADB(CMD):
 
         super().__init__(path)
 
-    def run_cmd(self, cmd: list[str]):
+    def run_cmd(self, cmd: list[str], serial: str | None = None):
         logger.debug(f"{cmd}")
         assert isinstance(cmd, list)
-        return self._run(cmd)
-
-    def run_shell_cmd(self, serial: str | None, cmd: list[str]):
-        assert isinstance(cmd, list)
-        cmd = ["shell"] + cmd
         if serial is not None:
             cmd = ["-s", serial] + cmd
+        return self._run(cmd)
 
+    def run_shell_cmd(self, cmd: list[str], serial: str | None = None):
+        assert isinstance(cmd, list)
+        cmd = ["shell"] + cmd
         logger.debug(f"{cmd}")
-        return self.run_cmd(cmd)
+        return self.run_cmd(cmd, serial)
 
     def run_cmd_daemon(self, cmd: list[str]):
         logger.debug(f"{cmd}")

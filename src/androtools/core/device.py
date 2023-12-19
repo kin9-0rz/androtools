@@ -99,7 +99,8 @@ class Device(ABC):
     def __init__(self, info: DeviceInfo) -> None:
         self.info = info
         self._adb_wrapper: ADB = ADB(info.adb_path)
-        self.serial = info.serial
+        self._serial = info.serial
+        """模拟器序列号，adb -s 的操作对象"""
 
         if not self.is_boot():
             self.launch()
@@ -107,8 +108,9 @@ class Device(ABC):
         # TODO 设备启动后，需要判断是否已经准备好了。
         # 如果已经知道 serial，我们能够可以利用 get_status 进行判断。
         # 如果还没有 serial，则尝试获取。
-        if self.serial is None:
+        if self._serial is None:
             self._init_serial()
+            self._serial = self.info.serial
 
         # TODO 判断设备是否已经完全启动。
         status = self.get_status()
@@ -121,11 +123,17 @@ class Device(ABC):
         if result := Android_API_MAP.get(self.sdk):
             self.android_version = result[0]
 
+    @property
+    def serial(self):
+        return self._serial
+
     def __str__(self) -> str:
         return f"{self.info.name}-{self.android_version}({self.sdk})"
 
     @abstractmethod
     def _init_serial(self):
+        """初始化 self.info.serial"""
+        # 通过 adb devices -l
         # console list 获取本设备ID，如果无法获取，则启动设备。
         # 是否已经启动，判断进程ID（PID）是否存在
         # 通过PID获取监听端口集合
@@ -137,7 +145,6 @@ class Device(ABC):
         # 停止
         # 启动中，存在PID
         # 启动完毕，
-
         pass
 
     def _init_sdk(self):
@@ -191,6 +198,11 @@ class Device(ABC):
         if self.sdk < 26:
             cmd = ["install", "-r", "-t", apk_path]
         output, _ = self.adb(cmd)
+
+        if "error" in output:
+            logger.error("".join(cmd))
+            logger.error(output)
+            return False, output
 
         return "Success" in output, output
 
@@ -256,12 +268,12 @@ class Device(ABC):
 
     def adb(self, cmd: list) -> tuple[str, str]:
         """执行 adb 命令"""
-        return self._adb_wrapper.run_cmd(cmd)
+        return self._adb_wrapper.run_cmd(cmd, self.info.serial)
 
     def adb_shell(self, cmd: list[str], encoding: str | None = None) -> tuple[str, str]:
         """执行 adb shell 命令"""
         assert cmd is not None
-        return self._adb_wrapper.run_shell_cmd(self.info.serial, cmd)
+        return self._adb_wrapper.run_shell_cmd(cmd, self.info.serial)
 
     def rm(self, path: str, isDir: bool = False, force: bool = False):
         """删除文件

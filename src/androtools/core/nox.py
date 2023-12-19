@@ -61,14 +61,22 @@ class NoxPlayer(Device):
         super().__init__(info)
 
     def _init_serial(self):
-        out, _ = self.nox_console.list_devices()
-        pid = None
-        for item in out.split("\n"):
-            parts = item.split(",")
-            if self.index != parts[0]:
-                continue
-            pid = int(parts[-1])
-            break
+        while True:
+            out, _ = self.nox_console.list_devices()
+            pid = None
+            for item in out.split("\n"):
+                parts = item.split(",")
+                if self.index != parts[0]:
+                    continue
+                pid = int(parts[-1])
+                break
+
+            if pid is not None and psutil.pid_exists(pid):
+                p = psutil.Process(pid)
+                if p.name() == "NoxVMHandle.exe":
+                    break
+
+            sleep(3)
 
         logger.debug(f"NoxPlayer {self.info.name} pid is {pid}")
 
@@ -76,26 +84,33 @@ class NoxPlayer(Device):
             raise ValueError("NoxPlayer not found")
 
         ports = set()
-        net_con = psutil.net_connections()
-        for con_info in net_con:
-            if con_info.pid == pid and con_info.status == "LISTEN":
-                ports.add(con_info.laddr.port)  # type: ignore
+        while True:
+            net_con = psutil.net_connections()
+            for con_info in net_con:
+                if con_info.pid == pid and con_info.status == "LISTEN":
+                    ports.add(con_info.laddr.port)  # type: ignore
 
-        # TODO 如果找不到序列号，怎么处理比较合适？
+            if len(ports) > 0:
+                break
+
+            self._adb_wrapper.run_cmd(["devices", "-l"])
+            sleep(1)
+
         while True:
             serial = None
             out, _ = self._adb_wrapper.run_cmd(["devices", "-l"])
             for line in out.strip().split("\n"):
                 if "daemon not running" in line:
-                    sleep(3)
                     break
 
                 if "List of devices attached" in line:
                     continue
+
                 parts = line.split()
                 serial = parts[0]
                 if int(serial.split(":")[-1]) in ports:
                     break
+                serial = None
 
             if serial is None:
                 sleep(3)
