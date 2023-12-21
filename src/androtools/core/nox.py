@@ -123,6 +123,7 @@ class NoxPlayer(Device):
     def launch(self):
         self.nox_console.launch_device(self.index)
         sleep(10)
+        self._init_serial()
 
     def close(self):
         self.nox_console.quit_device(self.index)
@@ -140,6 +141,7 @@ class NoxPlayer(Device):
                 break
             sleep(1)
         sleep(10)
+        self._init_serial()
 
     def is_boot(self):
         out, _ = self.nox_console.list_devices()

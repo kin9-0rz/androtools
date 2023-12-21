@@ -112,6 +112,9 @@ class Device(ABC):
             self._init_serial()
             self._serial = self.info.serial
 
+        if self._init_serial is None:
+            raise RuntimeError(f"Device {self.info.name} is not ready.")
+
         # TODO 判断设备是否已经完全启动。
         status = self.get_status()
         if status != DeviceStatus.RUN:
@@ -200,7 +203,7 @@ class Device(ABC):
         output, _ = self.adb(cmd)
 
         if "error" in output:
-            logger.error("".join(cmd))
+            logger.error(" ".join(cmd))
             logger.error(output)
             return False, output
 
@@ -212,7 +215,7 @@ class Device(ABC):
         output, error = self.adb(cmd)
         if "Success" in output:
             return True
-        logger.error("".join(cmd))
+        logger.error(" ".join(cmd))
         logger.error(output)
         logger.error(error, stack_info=True)
 
@@ -255,12 +258,13 @@ class Device(ABC):
         """将文件从模拟器下载到本地"""
         cmd = ["pull", remote, local]
         output, error = self.adb(cmd)
-        output = "".join(output)
         if "pulled" in output:
             return True
-        logger.error("".join(cmd))
-        logger.error(output)
-        logger.error(error)
+        logger.error(" ".join(cmd))
+        if output:
+            logger.error(output)
+        if error:
+            logger.error(error)
 
     def push(self, local: str, remote: str):
         """将文件从本地上传到模拟器"""
@@ -292,7 +296,10 @@ class Device(ABC):
 
     def ls(self, path: str):
         cmd = ["ls", path]
-        output, _ = self.adb_shell(cmd)
+        output, err = self.adb_shell(cmd)
+        if err is not None:
+            logger.warning(err)
+            return err
         return output
 
     def mkdir(self, path):
