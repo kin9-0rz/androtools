@@ -1,7 +1,6 @@
 # Android模拟器、雷电模拟器的基类
 from abc import ABC, abstractmethod
 from enum import Enum
-from time import sleep
 from typing import Literal, Sequence
 
 import func_timeout
@@ -198,7 +197,7 @@ class Device(ABC):
             tuple: (is_success, output)
         """
         cmd = ["install", "-r", "-g", "-t", apk_path]
-        if self.sdk < 26:
+        if self.sdk < 25:
             cmd = ["install", "-r", "-t", apk_path]
         output, _ = self.adb(cmd)
 
@@ -338,7 +337,6 @@ class Device(ABC):
     def tap(self, x: int, y: int):
         cmd = ["input", "tap", str(x), str(y)]
         self.adb_shell(cmd)
-        sleep(0.5)
 
     def long_press(self, x: int, y: int):
         self.swipe(x, y, x, y, 750)
@@ -348,17 +346,14 @@ class Device(ABC):
         if time:
             cmd.append(str(time))
         self.adb_shell(cmd)
-        sleep(0.5)
 
     def input_keyevent(self, keyevent: KeyEvent):
         cmd = ["input", "keyevent", str(keyevent.value)]
         self.adb_shell(cmd)
-        sleep(0.5)
 
     def input_text(self, txt: str):
         cmd = ["input", "text", txt]
         self.adb_shell(cmd)
-        sleep(0.5)
 
     def home(self):
         self.input_keyevent(KeyEvent.KEYCODE_HOME)
