@@ -33,7 +33,7 @@ class Emulator(CMD):
         # self._run(["@" + avd_name])
         # self._run(["-avd", avd_name])
         self.build_args(["-avd", avd_name])
-        return self.run_async()
+        return self.run_daemon()
 
     def list_avds(self):
         self.build("-list-avds")

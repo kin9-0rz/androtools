@@ -3,6 +3,7 @@ import shutil
 from time import sleep
 
 import psutil
+from func_timeout import FunctionTimedOut, func_timeout
 from loguru import logger
 
 from androtools.core.device import Device, DeviceConsole, DeviceInfo, DeviceStatus
@@ -134,14 +135,21 @@ class NoxPlayer(Device):
             sleep(1)
 
     def reboot(self):
-        self.nox_console.reboot_device(self.index)
-        while True:
-            r = self.get_status()
-            if r is DeviceStatus.RUN:
-                break
-            sleep(1)
-        sleep(10)
-        self._init_serial()
+        def _run():
+            self.nox_console.reboot_device(self.index)
+            while True:
+                r = self.get_status()
+                if r is DeviceStatus.RUN:
+                    break
+                sleep(1)
+            sleep(10)
+            self._init_serial()
+
+        try:
+            func_timeout(5, _run)
+        except FunctionTimedOut:
+            return False
+        return True
 
     def is_boot(self):
         out, _ = self.nox_console.list_devices()

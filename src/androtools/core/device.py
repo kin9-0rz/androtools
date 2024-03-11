@@ -3,8 +3,7 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Literal, Sequence
 
-import func_timeout
-from func_timeout import FunctionTimedOut
+from func_timeout import FunctionTimedOut, func_timeout
 from loguru import logger
 
 from androtools.android_sdk import CMD
@@ -95,26 +94,30 @@ class DeviceConsole(CMD):
 
 
 class Device(ABC):
-    def __init__(self, info: DeviceInfo) -> None:
+    def __init__(self, info: DeviceInfo, is_reboot: bool = False) -> None:
         self.info = info
         self._adb_wrapper: ADB = ADB(info.adb_path)
         self._serial = info.serial
         """模拟器序列号，adb -s 的操作对象"""
 
-        if not self.is_boot():
-            self.launch()
+        if self.is_boot():
+            if is_reboot:
+                try:
+                    func_timeout(60, self.reboot)
+                except FunctionTimedOut:
+                    self.close()
+                    raise RuntimeError("重启模拟器超时")
+        else:
+            try:
+                func_timeout(60, self.launch)
+            except FunctionTimedOut:
+                self.close()
+                raise FunctionTimedOut("启动模拟器超时")
 
-        # TODO 设备启动后，需要判断是否已经准备好了。
-        # 如果已经知道 serial，我们能够可以利用 get_status 进行判断。
-        # 如果还没有 serial，则尝试获取。
         if self._serial is None:
             self._init_serial()
             self._serial = self.info.serial
 
-        if self._init_serial is None:
-            raise RuntimeError(f"Device {self.info.name} is not ready.")
-
-        # TODO 判断设备是否已经完全启动。
         status = self.get_status()
         if status != DeviceStatus.RUN:
             logger.debug(f"Device {self.info.name} is {status}.")
@@ -297,7 +300,6 @@ class Device(ABC):
         cmd = ["ls", path]
         output, err = self.adb_shell(cmd)
         if err is not None:
-            logger.warning(err)
             return err
         return output
 
