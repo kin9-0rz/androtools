@@ -44,6 +44,9 @@ class DeviceInfo:
             and self.console_path == __value.console_path
         )
 
+    def __repr__(self) -> str:
+        return f"{self.index} {self.name}"
+
 
 class DeviceStatus(Enum):
     """模拟器状态"""
@@ -121,6 +124,7 @@ class Device(ABC):
         status = self.get_status()
         if status != DeviceStatus.RUN:
             logger.debug(f"Device {self.info.name} is {status}.")
+            self.close()
             raise RuntimeError(f"Device {self.info.name} is not ready.")
 
         self._init_sdk()
@@ -185,7 +189,7 @@ class Device(ABC):
         """判断模拟器是否没响应，如果没响应，则定义为模拟器崩溃"""
         try:
             # 点击HOME键，超过5秒没反应
-            func_timeout.func_timeout(5, self.home)
+            func_timeout(5, self.home)
         except FunctionTimedOut:
             return True
         return False
