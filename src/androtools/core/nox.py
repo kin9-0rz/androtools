@@ -14,16 +14,20 @@ class NoxConsole(DeviceConsole):
         super().__init__(path)
 
     def launch_device(self, idx: int | str):
-        return self._run(["launch", f"-index:{idx}"])
+        self._run(["launch", f"-index:{idx}"])
+        sleep(3)
 
     def reboot_device(self, idx: int | str):
-        return self._run(["reboot", f"-index:{idx}"])
+        self._run(["reboot", f"-index:{idx}"])
+        sleep(3)
 
     def quit_device(self, idx: int | str):
-        return self._run(["quit", f"-index:{idx}"])
+        self._run(["quit", f"-index:{idx}"])
+        sleep(3)
 
     def quit_all_devices(self):
-        return self._run(["quit-all"])
+        self._run(["quit-all"])
+        sleep(3)
 
     def list_devices(self):
         """列出所有模拟器信息
@@ -59,7 +63,8 @@ class NoxPlayer(Device):
         self.index = info.index
         self.name = info.name
         self.nox_console = NoxConsole(info.console_path)
-        super().__init__(info)
+        # NOTE Nox模拟器，不一定能关闭，所以，最好是重启。
+        super().__init__(info, True)
 
     def _init_serial(self):
         while True:

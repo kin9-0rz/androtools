@@ -14,13 +14,11 @@ def log_filter(record):
     return __name__ in record["file"].path
 
 
-handler_id = logger.add(
-    f"{__name__}.log",
-    filter=log_filter,
-    level=getLevelName(DEBUG),
-    backtrace=True,
-    diagnose=True,
-)
-
-if not DEBUG_MODE:
-    logger.remove(handler_id)
+if DEBUG_MODE:
+    logger.add(
+        f"{__name__}.log",
+        filter=log_filter,
+        level=getLevelName(DEBUG),
+        backtrace=True,
+        diagnose=True,
+    )
