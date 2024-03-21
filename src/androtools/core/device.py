@@ -103,23 +103,22 @@ class Device(ABC):
         self._serial = info.serial
         """模拟器序列号，adb -s 的操作对象"""
 
-        if self.is_boot():
-            if is_reboot:
-                try:
+        try:
+            if self.is_boot():
+                if is_reboot:
                     func_timeout(60, self.reboot)
-                except FunctionTimedOut:
-                    self.close()
-                    raise RuntimeError("重启模拟器超时")
-        else:
-            try:
+            else:
                 func_timeout(60, self.launch)
-            except FunctionTimedOut:
-                self.close()
-                raise FunctionTimedOut("启动模拟器超时")
+        except FunctionTimedOut:
+            self.close()
+            raise FunctionTimedOut("启动模拟器超时")
 
         if self._serial is None:
             self._init_serial()
             self._serial = self.info.serial
+
+        if self._serial is None:
+            raise RuntimeError("无法获取设备序列号")
 
         status = self.get_status()
         if status != DeviceStatus.RUN:

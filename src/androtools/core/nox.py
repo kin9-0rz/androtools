@@ -66,17 +66,21 @@ class NoxPlayer(Device):
         # NOTE Nox模拟器，不一定能关闭，所以，最好是重启。
         super().__init__(info, True)
 
+    def get_pid(self):
+        out, _ = self.nox_console.list_devices()
+        pid = -1
+        for item in out.split("\n"):
+            parts = item.split(",")
+            if self.index != parts[0]:
+                continue
+            pid = int(parts[-1])
+            break
+
+        return pid
+
     def _init_serial(self):
         while True:
-            out, _ = self.nox_console.list_devices()
-            pid = None
-            for item in out.split("\n"):
-                parts = item.split(",")
-                if self.index != parts[0]:
-                    continue
-                pid = int(parts[-1])
-                break
-
+            pid = self.get_pid()
             if pid is not None and psutil.pid_exists(pid):
                 p = psutil.Process(pid)
                 if p.name() == "NoxVMHandle.exe":
@@ -128,60 +132,42 @@ class NoxPlayer(Device):
 
     def launch(self):
         self.nox_console.launch_device(self.index)
-        sleep(10)
-        self._init_serial()
+        while True:
+            sleep(1)
+            if self.is_boot():
+                break
 
     def close(self):
         self.nox_console.quit_device(self.index)
-        while True:
-            r = self.get_status()
-            if r is DeviceStatus.STOP:
-                break
-            sleep(1)
+        sleep(5)
+        if self.is_boot():
+            self.kill()
+
+    def kill(self):
+        pid = self.get_pid()
+        if psutil.pid_exists(pid):
+            p = psutil.Process(pid)
+            p.kill()
 
     def reboot(self):
-        def _run():
-            self.nox_console.reboot_device(self.index)
-            while True:
-                r = self.get_status()
-                if r is DeviceStatus.RUN:
-                    break
-                sleep(1)
-            sleep(10)
-            self._init_serial()
+        self.nox_console.reboot_device(self.index)
+        while True:
+            sleep(1)
+            if self.is_boot():
+                break
 
-        try:
-            func_timeout(5, _run)
-        except FunctionTimedOut:
+    def is_boot(self):
+        pid = self.get_pid()
+        if pid == -1:
             return False
         return True
 
-    def is_boot(self):
-        out, _ = self.nox_console.list_devices()
-        for line in out.strip().split("\n"):
-            if self.name not in line:
-                continue
-
-            pid = line.split(",")[-1]
-            if pid == "-1":
-                return False
-
-        return True
-
     def get_status(self):
-        assert self.info.serial is not None
-
         status = DeviceStatus.UNKNOWN
-        out, _ = self.nox_console.list_devices()
-        for line in out.strip().split("\n"):
-            if self.name not in line:
-                continue
-            pid = line.split(",")[-1]
-            if pid == "-1":
-                status = DeviceStatus.STOP
-            else:
-                status = DeviceStatus.BOOT
-            break
+        if self.is_boot():
+            status = DeviceStatus.BOOT
+        else:
+            status = DeviceStatus.STOP
 
         if status is DeviceStatus.BOOT:
             if self.is_crashed():
