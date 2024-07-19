@@ -205,14 +205,14 @@ class Device(ABC):
         cmd = ["install", "-r", "-g", "-t", apk_path]
         if self.sdk < 25:
             cmd = ["install", "-r", "-t", apk_path]
-        output, _ = self.adb(cmd)
+        output, errout = self.adb(cmd)
 
         if "error" in output:
             logger.error(" ".join(cmd))
             logger.error(output)
             return False, output
 
-        return "Success" in output, output
+        return "Success" in errout, output + " | " + errout
 
     def uninstall_app(self, package_name: str):
         """卸载应用"""
