@@ -3,10 +3,10 @@ import shutil
 from time import sleep
 
 import psutil
-from func_timeout import FunctionTimedOut, func_timeout
 from loguru import logger
 
-from androtools.core.device import Device, DeviceConsole, DeviceInfo, DeviceStatus
+from androtools.core.device import (Device, DeviceConsole, DeviceInfo,
+                                    DeviceStatus)
 
 
 class NoxConsole(DeviceConsole):
@@ -26,7 +26,8 @@ class NoxConsole(DeviceConsole):
         sleep(3)
 
     def quit_all_devices(self):
-        self._run(["quit-all"])
+        """关闭所有的模拟器"""
+        self._run(["quitall"])
         sleep(3)
 
     def list_devices(self):
@@ -59,12 +60,12 @@ class NoxPlayerInfo(DeviceInfo):
 
 
 class NoxPlayer(Device):
-    def __init__(self, info: DeviceInfo) -> None:
+    def __init__(self, info: DeviceInfo, is_reboot: bool = True) -> None:
         self.index = info.index
         self.name = info.name
         self.nox_console = NoxConsole(info.console_path)
         # NOTE Nox模拟器，不一定能关闭，所以，最好是重启。
-        super().__init__(info, True)
+        super().__init__(info, is_reboot)
 
     def get_pid(self):
         out, _ = self.nox_console.list_devices()
