@@ -141,10 +141,9 @@ class NoxPlayer(Device):
     def close(self):
         self.nox_console.quit_device(self.index)
         sleep(5)
-        if self.is_boot():
-            self.kill()
+        self._kill_self()
 
-    def kill(self):
+    def _kill_self(self):
         pid = self.get_pid()
         if psutil.pid_exists(pid):
             p = psutil.Process(pid)
