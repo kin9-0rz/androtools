@@ -46,6 +46,27 @@ class NoxConsole(DeviceConsole):
         """
         return self._run(["list"])
 
+    # installapp <-name:nox_name | -index:nox_index> -filename:<apk_file_name>
+    def install_app(self, idx: int | str, apk: str):
+        r1, r2 = self._run(["installapp", f"-index:{idx}", f"-filename:{apk}"])
+        sleep(3)
+        return True, r1.strip() + " | " + r2.strip()
+
+    # uninstallapp <-name:nox_name | -index:nox_index> -packagename:<apk_package_name>
+    def uninstall_app(self, idx: int | str, package: str):
+        self._run(["uninstallapp", f"-index:{idx}", f"-packagename:{package}"])
+        sleep(3)
+
+    # runapp <-name:nox_name | -index:nox_index> -packagename:<apk_package_name>
+    def run_app(self, idx: int | str, package: str):
+        self._run(["runapp", f"-index:{idx}", f"-packagename:{package}"])
+        sleep(3)
+
+    # killapp <-name:nox_name | -index:nox_index> -packagename:<apk_package_name>
+    def kill_app(self, idx: int | str, package: str):
+        self._run(["killapp", f"-index:{idx}", f"-packagename:{package}"])
+        sleep(3)
+
 
 class NoxPlayerInfo(DeviceInfo):
     def __init__(
@@ -192,3 +213,15 @@ class NoxPlayer(Device):
             status = DeviceStatus.RUN
 
         return status
+
+    def install_app(self, apk_path: str):
+        return self.nox_console.install_app(self.index, apk_path)
+
+    def uninstall_app(self, package_name: str):
+        self.nox_console.uninstall_app(self.index, package_name)
+
+    def run_app(self, package: str):
+        self.nox_console.run_app(self.index, package)
+
+    def kill_app(self, package: str):
+        self.nox_console.kill_app(self.index, package)

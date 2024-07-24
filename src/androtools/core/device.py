@@ -212,7 +212,7 @@ class Device(ABC):
             logger.error(output)
             return False, output
 
-        return "Success" in errout, output + " | " + errout
+        return "Success" in errout, output + " | " + errout.strip()
 
     def uninstall_app(self, package_name: str):
         """卸载应用"""
