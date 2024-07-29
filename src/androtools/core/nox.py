@@ -214,8 +214,9 @@ class NoxPlayer(Device):
 
         return status
 
-    def install_app(self, apk_path: str):
-        return self.nox_console.install_app(self.index, apk_path)
+    # NOTE 不能使用这个，应用安装后，没有权限。
+    # def install_app(self, apk_path: str):
+    #     return self.nox_console.install_app(self.index, apk_path)
 
     def uninstall_app(self, package_name: str):
         self.nox_console.uninstall_app(self.index, package_name)
