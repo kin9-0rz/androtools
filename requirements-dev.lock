@@ -5,13 +5,23 @@
 #   pre: false
 #   features: []
 #   all-features: false
+#   with-sources: false
+#   generate-hashes: false
+#   universal: false
 
 -e file:.
 click==8.1.7
+    # via androtools
 func-timeout==4.3.5
+    # via androtools
 iniconfig==2.0.0
+    # via pytest
 loguru==0.7.2
+    # via androtools
 packaging==23.2
+    # via pytest
 pluggy==1.3.0
+    # via pytest
 psutil==5.9.5
+    # via androtools
 pytest==7.4.2

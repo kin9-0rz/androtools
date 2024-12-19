@@ -6,12 +6,6 @@ from enum import Enum
 from loguru import logger
 
 
-class SubSubCommand(Enum):
-    """命令的子命令的子命令"""
-
-    pass
-
-
 class CMD:
     def __init__(self, path: str) -> None:
         assert isinstance(path, str)
@@ -86,7 +80,13 @@ class CMD:
             logger.error(err)
             raise err
 
+    # def __init__(self, path: str):
+    #     assert isinstance(path, str)
+    #     self.path = path
+    #     self.bin_path = path if os.path.exists(path) else shutil.which(path)
+    #     self._args: list[str] = []
+
     # TODO 这种方式感觉不大好，调用过于繁琐，最好能够直接使用。
-    def run_subcmd(self, scmd: SubSubCommand, args: list):
-        assert isinstance(scmd, SubSubCommand)
-        return self._run(scmd.value + args)
+    # def run_subcmd(self, scmd: SubSubCommand, args: list):
+    #     assert isinstance(scmd, SubSubCommand)
+    #     return self._run(scmd.value + args)

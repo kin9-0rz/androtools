@@ -3,7 +3,7 @@ from logging import DEBUG, INFO, getLevelName
 
 from loguru import logger
 
-DEBUG_MODE = False
+DEBUG_MODE = True
 
 
 if 0 in logger._core.handlers:  # type: ignore
