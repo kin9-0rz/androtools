@@ -37,6 +37,7 @@ class ADB(CMD):
         super().__init__(path)
 
     def run_cmd(self, cmd: list[str], serial: str | None = None):
+        """执行 adb 命令"""
         logger.debug(f"{cmd}")
         assert isinstance(cmd, list)
         if serial is not None:
@@ -44,6 +45,7 @@ class ADB(CMD):
         return self._run(cmd)
 
     def run_shell_cmd(self, cmd: list[str], serial: str | None = None):
+        """执行 adb shell 命令"""
         assert isinstance(cmd, list)
         cmd = ["shell"] + cmd
         logger.debug(f"{cmd}")
@@ -51,14 +53,15 @@ class ADB(CMD):
 
     def run_cmd_daemon(self, cmd: list[str]):
         logger.debug(f"{cmd}")
-        return self._run_daemon(cmd)
+        self._run_daemon(cmd)
 
-    def run_shell_cmd_daemon(self, serial: str | None, cmd: list[str]):
+    def run_shell_cmd_daemon(self, cmd: list[str], serial: str | None = None):
+        """执行 adb shell 命令"""
         assert isinstance(cmd, list)
         cmd = ["shell"] + cmd
         if serial is not None:
             cmd = ["-s", serial] + cmd
-        return self._run_daemon(cmd)
+        self._run_daemon(cmd)
 
     def help(self):
         output, _ = self.run_cmd([])

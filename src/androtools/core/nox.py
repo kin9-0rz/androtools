@@ -5,8 +5,7 @@ from time import sleep
 import psutil
 from loguru import logger
 
-from androtools.core.device import (Device, DeviceConsole, DeviceInfo,
-                                    DeviceStatus)
+from androtools.core.device import Device, DeviceConsole, DeviceInfo, DeviceStatus
 
 
 class NoxConsole(DeviceConsole):
@@ -30,7 +29,7 @@ class NoxConsole(DeviceConsole):
         self._run(["quitall"])
         sleep(3)
 
-    def list_devices(self):
+    def list_devices(self) -> str:
         """列出所有模拟器信息
 
         0. 索引
@@ -44,7 +43,8 @@ class NoxConsole(DeviceConsole):
         Returns:
             _type_: _description_
         """
-        return self._run(["list"])
+        r, _ = self._run(["list"])
+        return r
 
     # installapp <-name:nox_name | -index:nox_index> -filename:<apk_file_name>
     def install_app(self, idx: int | str, apk: str):
@@ -61,6 +61,7 @@ class NoxConsole(DeviceConsole):
     def run_app(self, idx: int | str, package: str):
         self._run(["runapp", f"-index:{idx}", f"-packagename:{package}"])
         sleep(3)
+        return True
 
     # killapp <-name:nox_name | -index:nox_index> -packagename:<apk_package_name>
     def kill_app(self, idx: int | str, package: str):
@@ -177,7 +178,7 @@ class NoxPlayer(Device):
             if self.is_boot():
                 break
 
-    def is_boot(self):
+    def is_boot(self) -> bool:
         pid = self.get_pid()
         if pid == -1:
             return False
@@ -221,8 +222,8 @@ class NoxPlayer(Device):
     def uninstall_app(self, package_name: str):
         self.nox_console.uninstall_app(self.index, package_name)
 
-    def run_app(self, package: str):
-        self.nox_console.run_app(self.index, package)
+    def run_app(self, package: str) -> bool:
+        return self.nox_console.run_app(self.index, package)
 
     def kill_app(self, package: str):
         self.nox_console.kill_app(self.index, package)
