@@ -43,7 +43,9 @@ class NoxConsole(DeviceConsole):
         Returns:
             _type_: _description_
         """
-        r, _ = self._run(["list"])
+        r, err = self._run(["list"])
+        if err != "":
+            logger.error(err)
         return r
 
     # installapp <-name:nox_name | -index:nox_index> -filename:<apk_file_name>
@@ -90,7 +92,7 @@ class NoxPlayer(Device):
         super().__init__(info, is_reboot)
 
     def get_pid(self):
-        out, _ = self.nox_console.list_devices()
+        out = self.nox_console.list_devices()
         pid = -1
         for item in out.split("\n"):
             parts = item.split(",")
