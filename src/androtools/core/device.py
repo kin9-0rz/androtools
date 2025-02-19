@@ -91,7 +91,8 @@ class DeviceConsole(CMD):
         """关闭所有的模拟器"""
         pass
 
-    def list_devices(self):
+    @abstractmethod
+    def list_devices(self) -> str:
         """列出所有模拟器信息"""
         pass
 
@@ -164,7 +165,8 @@ class Device(ABC):
             self.sdk = int(output[0])
         return self.sdk
 
-    def is_boot(self):
+    @abstractmethod
+    def is_boot(self) -> bool:
         """判断设备是否已经启动"""
         pass
 
@@ -279,10 +281,16 @@ class Device(ABC):
         """执行 adb 命令"""
         return self._adb_wrapper.run_cmd(cmd, self.info.serial)
 
-    def adb_shell(self, cmd: list[str], encoding: str | None = None) -> tuple[str, str]:
+    # def adb_shell(self, cmd: list[str], encoding: str | None = None) -> tuple[str, str]:
+    def adb_shell(self, cmd: list[str]) -> tuple[str, str]:
         """执行 adb shell 命令"""
         assert cmd is not None
         return self._adb_wrapper.run_shell_cmd(cmd, self.info.serial)
+
+    def adb_shell_daemon(self, cmd: list[str]):
+        assert cmd is not None
+        assert isinstance(cmd, list)
+        self._adb_wrapper.run_shell_cmd_daemon(cmd, self.info.serial)
 
     def rm(self, path: str, isDir: bool = False, force: bool = False):
         """删除文件

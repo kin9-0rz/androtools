@@ -30,6 +30,7 @@ Android_API_MAP = {
     32: ("Android 12L", "Snow Cone"),
     33: ("Android 13", "TIRAMISU"),
     34: ("Android 14", "Upside Down Cake"),
+    35: ("Android 15", "Vanilla Ice Cream"),
 }
 
 

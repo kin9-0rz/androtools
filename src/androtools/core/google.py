@@ -48,14 +48,14 @@ class GEmuInfo(DeviceInfo):
     """设备信息，通过 adb devices -l 获取以下信息"""
 
     name: str  # 设备名，用于启动模拟器
-    serial: str  # 设备序列号，用于 adb
+    serial: str | None  # 设备序列号，用于 adb
     path: str  # adb 路径
     emu_path: str | None  # emulator 路径
 
     def __init__(
         self,
         name: str,
-        serial: str,
+        serial: str | None,
         path: str,
         emu_path: str | None = None,
     ):
@@ -102,8 +102,8 @@ class GEmu(Device):
         # 雷电模拟器的启动方式不一样。
         pass
 
-    def get_status(self):
-        pass
+    # def get_status(self) -> DeviceStatus:
+    # pass
 
     def check_device_status(self, num=5):
         """执行命令之前，先确认一下设备的状态。
@@ -159,16 +159,21 @@ class GEmu(Device):
 
         return G_STATE.UNKNOWN
 
-    def adb_shell(self, cmd: str | list, encoding: str | None = None):
+    # def adb_shell(self, cmd: str | list, encoding: str | None = None):
+    def adb_shell(self, cmd: str | list):
+        """执行 adb shell 命令"""
         logger.debug(f"run shell cmd : {cmd}")
         if not self.check_device_status():
             raise RuntimeError(f"{self.name} 设备丢失。")
         if isinstance(cmd, str):
             cmd = cmd.split()
-        return self._adb.run_shell_cmd(self.info.serial, cmd)
+        return self._adb.run_shell_cmd(cmd, self.info.serial)
 
     def adb(self, cmd: str | list):
+        """执行 adb 命令"""
         logger.debug(f"run cmd : {str(cmd)}")
+        if isinstance(cmd, str):
+            cmd = cmd.split()
         if not self.check_device_status():
             raise RuntimeError(f"{self.name} 设备丢失。")
         return self._adb.run_cmd(cmd)
