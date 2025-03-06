@@ -1,5 +1,6 @@
 # Android模拟器、雷电模拟器的基类
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from enum import Enum
 from typing import Literal, Sequence
 
@@ -11,28 +12,30 @@ from androtools.android_sdk.platform_tools import ADB
 from androtools.core.constants import Android_API_MAP, KeyEvent
 
 
+@dataclass
 class DeviceInfo:
     """模拟器信息"""
 
     index: str  # 模拟器序号，雷电模拟器、夜神模拟器的序号
     serial: str | None  # 模拟器序列号，adb -s 的操作对象
     name: str  # 模拟器名称，它可以修改。
+    version: int  # 模拟器版本, 如 9 表示 Android 9
     adb_path: str  # adb 路径
     console_path: str  # 模拟器控制器；雷电模拟器则是 ldconsole
 
-    def __init__(
-        self,
-        index: str,
-        serial: str | None,
-        name: str,
-        adb_path: str,
-        console_path: str,
-    ) -> None:
-        self.index = index
-        self.serial = serial
-        self.name = name
-        self.adb_path = adb_path
-        self.console_path = console_path
+    # def __init__(
+    #     self,
+    #     index: str,
+    #     serial: str | None,
+    #     name: str,
+    #     adb_path: str,
+    #     console_path: str,
+    # ) -> None:
+    #     self.index = index
+    #     self.serial = serial
+    #     self.name = name
+    #     self.adb_path = adb_path
+    #     self.console_path = console_path
 
     def __eq__(self, __value: object) -> bool:
         if not isinstance(__value, DeviceInfo):

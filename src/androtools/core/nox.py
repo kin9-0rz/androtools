@@ -72,15 +72,17 @@ class NoxConsole(DeviceConsole):
 
 
 class NoxPlayerInfo(DeviceInfo):
-    def __init__(
-        self,
-        index: str,
-        serial: str | None,
-        name: str,
-        adb_path: str,
-        console_path: str,
-    ) -> None:
-        super().__init__(index, serial, name, adb_path, console_path)
+    pass
+
+    # def __init__(
+    #     self,
+    #     index: str,
+    #     serial: str | None,
+    #     name: str,
+    #     adb_path: str,
+    #     console_path: str,
+    # ) -> None:
+    #     super().__init__(index, serial, name, adb_path, console_path)
 
 
 class NoxPlayer(Device):
