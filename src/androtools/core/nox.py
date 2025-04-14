@@ -1,4 +1,5 @@
 # 夜神模拟器
+from contextlib import contextmanager
 import shutil
 from time import sleep
 
@@ -91,40 +92,45 @@ class NoxPlayer(Device):
         self.name = info.name
         self.nox_console = NoxConsole(info.console_path)
         # NOTE Nox模拟器，不一定能关闭，所以，最好是重启。
+        self.pids = []
         super().__init__(info, is_reboot)
 
-    def get_pid(self):
+    def _get_pids(self):
         out = self.nox_console.list_devices()
-        pid = -1
         for item in out.split("\n"):
             parts = item.split(",")
             if self.index != parts[0]:
                 continue
-            pid = int(parts[-1])
+            # parts[-1] : NoxVMHandle.exe 的进程ID
+            # parts[-2] : Nox.exe 的进程ID
+            self.pids = [int(parts[-1]), int(parts[-2])]
             break
 
-        return pid
-
     def _init_serial(self):
+        nox_pid = None
         while True:
-            pid = self.get_pid()
-            if pid is not None and psutil.pid_exists(pid):
-                p = psutil.Process(pid)
+            self._get_pids()
+            if len(self.pids) < 2:
+                sleep(3)
+                continue
+
+            nox_pid = self.pids[0]
+            if psutil.pid_exists(self.pids[0]):
+                p = psutil.Process(nox_pid)
                 if p.name() == "NoxVMHandle.exe":
                     break
 
+            nox_pid = None
             sleep(3)
 
-        logger.debug(f"NoxPlayer {self.info.name} pid is {pid}")
-
-        if pid is None:
+        if nox_pid is None:
             raise ValueError("NoxPlayer not found")
 
         ports = set()
         while True:
             net_con = psutil.net_connections()
             for con_info in net_con:
-                if con_info.pid == pid and con_info.status == "LISTEN":
+                if con_info.pid == nox_pid and con_info.status == "LISTEN":
                     ports.add(con_info.laddr.port)  # type: ignore
 
             if len(ports) > 0:
@@ -170,10 +176,10 @@ class NoxPlayer(Device):
         self._kill_self()
 
     def _kill_self(self):
-        pid = self.get_pid()
-        if psutil.pid_exists(pid):
-            p = psutil.Process(pid)
-            p.kill()
+        for pid in self.pids:
+            if psutil.pid_exists(pid):
+                p = psutil.Process(pid)
+                p.kill()
 
     def reboot(self):
         self.nox_console.reboot_device(self.index)
@@ -183,7 +189,7 @@ class NoxPlayer(Device):
                 break
 
     def is_boot(self) -> bool:
-        pid = self.get_pid()
+        pid = self.pids[0]
         if pid == -1:
             return False
         return True
