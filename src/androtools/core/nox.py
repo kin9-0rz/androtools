@@ -1,5 +1,4 @@
 # 夜神模拟器
-from contextlib import contextmanager
 import shutil
 from time import sleep
 
@@ -95,7 +94,7 @@ class NoxPlayer(Device):
         self.pids = []
         super().__init__(info, is_reboot)
 
-    def _get_pids(self):
+    def _init_pids(self):
         out = self.nox_console.list_devices()
         for item in out.split("\n"):
             parts = item.split(",")
@@ -109,7 +108,7 @@ class NoxPlayer(Device):
     def _init_serial(self):
         nox_pid = None
         while True:
-            self._get_pids()
+            self._init_pids()
             if len(self.pids) < 2:
                 sleep(3)
                 continue
@@ -189,6 +188,7 @@ class NoxPlayer(Device):
                 break
 
     def is_boot(self) -> bool:
+        self._init_pids()
         pid = self.pids[0]
         if pid == -1:
             return False
