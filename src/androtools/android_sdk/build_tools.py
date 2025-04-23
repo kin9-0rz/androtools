@@ -27,7 +27,8 @@ class AAPT2(CMD):
         super().__init__(path)
 
     def dump(self, sub_cmd: Dump, args: list):
-        return sub_cmd.value + args
+        cmd = sub_cmd.value + args
+        return self._run(cmd)
 
 
 class ApkSigner:
