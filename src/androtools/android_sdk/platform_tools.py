@@ -67,10 +67,15 @@ class ADB(CMD):
         output, _ = self.run_cmd([])
         logger.debug(output)
 
-    def get_devices(self):
+    def get_devices(self, max_tries=10):
         devices = []
 
+        counter = 0
         while True:
+            counter += 1
+            if counter == max_tries:
+                return devices
+
             self.run_cmd(["devices", "-l"])
             self.run_cmd(["devices", "-l"])
 
