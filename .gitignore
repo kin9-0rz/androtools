@@ -1,4 +1,5 @@
 # mac
+.devcontainer/
 .DS_Store
 .vscode/
 .python-version

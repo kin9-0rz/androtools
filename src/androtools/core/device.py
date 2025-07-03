@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
 from typing import Literal, Sequence
+import time
 
 from func_timeout import FunctionTimedOut, func_timeout
 from loguru import logger
@@ -23,20 +24,6 @@ class DeviceInfo:
     adb_path: str  # adb 路径
     console_path: str  # 模拟器控制器；雷电模拟器则是 ldconsole
 
-    # def __init__(
-    #     self,
-    #     index: str,
-    #     serial: str | None,
-    #     name: str,
-    #     adb_path: str,
-    #     console_path: str,
-    # ) -> None:
-    #     self.index = index
-    #     self.serial = serial
-    #     self.name = name
-    #     self.adb_path = adb_path
-    #     self.console_path = console_path
-
     def __eq__(self, __value: object) -> bool:
         if not isinstance(__value, DeviceInfo):
             return False
@@ -55,12 +42,13 @@ class DeviceStatus(Enum):
     """模拟器状态"""
 
     STOP = "-1"  # 停止
-    BOOT = "0"  # 设备启动
-    RUN = "1"  # 设备启动完毕，运行中。
-    HANG_UP = "2"  # 挂起
-    ERORR = "3"  # 模拟器执行 adb 命令没响应，则为错误，需要重启模拟器
-    ADB_ERR = "4"  # 模拟器已经启动，但是，adb 找不到设备
-    UNKNOWN = "5"  # 未知
+    BOOT = "0"  # 1. 设备启动，存在PID
+    BOOT_COMPLETED = "1"  # 2. 设备启动完毕
+    RUN = "2"  # 3. 设备启动完毕，并且已经进入了系统界面。
+    HANG_UP = "3"  # 挂起
+    ERORR = "4"  # 模拟器执行 adb 命令没响应，则为错误，需要重启模拟器
+    ADB_ERR = "5"  # 模拟器已经启动，但是，adb 找不到设备
+    UNKNOWN = "6"  # 未知
 
     @staticmethod
     def get(value: str):
@@ -101,93 +89,32 @@ class DeviceConsole(CMD):
 
 
 class Device(ABC):
-    def __init__(self, info: DeviceInfo, is_reboot: bool = False) -> None:
+    # FIXME 定义接口，不要具体的实现
+    def __init__(self, info: DeviceInfo) -> None:
         self.info = info
         self._adb_wrapper: ADB = ADB(info.adb_path)
-        self._serial = info.serial
-        """模拟器序列号，adb -s 的操作对象"""
+        self.android_version = info.version
 
-        try:
-            if self.is_boot():
-                if is_reboot:
-                    func_timeout(60, self.reboot)
-            else:
-                func_timeout(60, self.launch)
-        except FunctionTimedOut:
-            self.close()
-            raise FunctionTimedOut("启动模拟器超时")
+        self.sdk = None
 
-        if self._serial is None:
-            self._init_serial()
-            self._serial = self.info.serial
+    def get_android_version(self):
+        if self.sdk is None:
+            self.sdk = self.get_sdk()
 
-        if self._serial is None:
-            raise RuntimeError("无法获取设备序列号")
-
-        status = self.get_status()
-        if status != DeviceStatus.RUN:
-            logger.debug(f"Device {self.info.name} is {status}.")
-            self.close()
-            raise RuntimeError(f"Device {self.info.name} is not ready.")
-
-        self._init_sdk()
         self.android_version = "Unknown"
         if result := Android_API_MAP.get(self.sdk):
             self.android_version = result[0]
-
-    @property
-    def serial(self):
-        return self._serial
 
     def __str__(self) -> str:
         return f"{self.info.name}-{self.android_version}({self.sdk})"
 
     @abstractmethod
-    def _init_serial(self):
-        """初始化 self.info.serial"""
-        # 通过 adb devices -l
-        # console list 获取本设备ID，如果无法获取，则启动设备。
-        # 是否已经启动，判断进程ID（PID）是否存在
-        # 通过PID获取监听端口集合
-
-        # 通过adb devices -l，获取设备序列号列表
-        # 如果在列表里面，则说明完全启动成功。
-
-        # 设备有几种状态：
-        # 停止
-        # 启动中，存在PID
-        # 启动完毕，
-        pass
-
-    def _init_sdk(self):
-        logger.debug(f"Emu - 初始化模拟器 {self.info.name} SDK")
-        output, _ = self.adb_shell(["getprop", "ro.build.version.sdk"])
-        if isinstance(output, str):
-            self.sdk = int(output)
-        elif isinstance(output, list):
-            self.sdk = int(output[0])
-        return self.sdk
-
-    @abstractmethod
     def is_boot(self) -> bool:
         """判断设备是否已经启动"""
-        pass
 
-    def launch(self):
-        """启动模拟器"""
-        pass
-
-    def close(self):
-        """关闭模拟器"""
-        pass
-
-    def reboot(self):
-        """重启模拟器"""
-        pass
-
-    def get_status(self) -> DeviceStatus:
-        """获取模拟器状态"""
-        return DeviceStatus.UNKNOWN
+    def is_boot_completed(self) -> bool:
+        r = self.getprop("sys.boot_completed")
+        return r == "1"
 
     def is_crashed(self):
         """判断模拟器是否没响应，如果没响应，则定义为模拟器崩溃"""
@@ -198,6 +125,84 @@ class Device(ABC):
             return True
         return False
 
+    def get_status(self):
+        status = DeviceStatus.STOP
+        if self.is_boot():
+            status = DeviceStatus.BOOT
+        else:
+            return status
+
+        counter = 0
+        while True:
+            counter += 1
+            if counter > 60:
+                break
+
+            if self.is_boot_completed():
+                status = DeviceStatus.BOOT_COMPLETED
+                break
+
+            # 5分钟
+            time.sleep(5)
+
+        if status is DeviceStatus.BOOT_COMPLETED:
+            if self.is_crashed():
+                status = DeviceStatus.ERORR
+            else:
+                status = DeviceStatus.RUN
+
+        return status
+
+    def launch(self):
+        """启动模拟器"""
+        pass
+
+    def close(self):
+        """关闭模拟器"""
+        pass
+
+    @abstractmethod
+    def reboot(self) -> DeviceStatus:
+        """重启模拟器"""
+        pass
+
+    def adb(self, cmd: list) -> tuple[str, str]:
+        """执行 adb 命令"""
+        return self._adb_wrapper.run_cmd(cmd, self.info.serial)
+
+    def adb_shell(self, cmd: list[str]) -> tuple[str, str]:
+        """执行 adb shell 命令"""
+        assert cmd is not None
+        assert isinstance(cmd, list)
+        return self._adb_wrapper.run_shell_cmd(cmd, self.info.serial)
+
+    def adb_shell_daemon(self, cmd: list[str]):
+        assert cmd is not None
+        assert isinstance(cmd, list)
+        self._adb_wrapper.run_shell_cmd_daemon(cmd, self.info.serial)
+
+    def getprop(self, prop: str | None = None) -> str:
+        """获取模拟器属性"""
+        if prop:
+            output, _ = self.adb_shell(["getprop", prop])
+        else:
+            output, _ = self.adb(["getprop"])
+
+        return output.strip()
+
+    def get_sdk(self):
+        sdk = -1
+        output = self.getprop("ro.build.version.sdk")
+        if output == "":
+            return sdk
+
+        if isinstance(output, str):
+            sdk = int(output)
+        elif isinstance(output, list):
+            sdk = int(output[0])
+
+        return sdk
+
     def install_app(self, apk_path: str):
         """安装apk
 
@@ -207,6 +212,9 @@ class Device(ABC):
         Returns:
             tuple: (is_success, output)
         """
+        if self.sdk is None:
+            self.sdk = self.get_sdk()
+
         cmd = ["install", "-r", "-g", "-t", apk_path]
         if self.sdk < 25:
             cmd = ["install", "-r", "-t", apk_path]
@@ -279,21 +287,6 @@ class Device(ABC):
     def push(self, local: str, remote: str):
         """将文件从本地上传到模拟器"""
         self.adb(["push", local, remote])
-
-    def adb(self, cmd: list) -> tuple[str, str]:
-        """执行 adb 命令"""
-        return self._adb_wrapper.run_cmd(cmd, self.info.serial)
-
-    # def adb_shell(self, cmd: list[str], encoding: str | None = None) -> tuple[str, str]:
-    def adb_shell(self, cmd: list[str]) -> tuple[str, str]:
-        """执行 adb shell 命令"""
-        assert cmd is not None
-        return self._adb_wrapper.run_shell_cmd(cmd, self.info.serial)
-
-    def adb_shell_daemon(self, cmd: list[str]):
-        assert cmd is not None
-        assert isinstance(cmd, list)
-        self._adb_wrapper.run_shell_cmd_daemon(cmd, self.info.serial)
 
     def rm(self, path: str, isDir: bool = False, force: bool = False):
         """删除文件

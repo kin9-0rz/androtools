@@ -1,32 +1,17 @@
 # 雷电模拟器
 import shutil
-from time import sleep
 
 import psutil
-from loguru import logger
 
 from androtools.android_sdk import CMD
-from androtools.core.device import Device, DeviceInfo, DeviceStatus
+from androtools.core.device import Device, DeviceInfo
 
 
 class LDConsole(CMD):
+    """使用 ldconsole.exe 对模拟器进行管理"""
+
     def __init__(self, path=shutil.which("ldconsole.exe")):
         super().__init__(path)
-
-    def help(self):
-        return self._run([])
-
-    def launch_device(self, idx: int | str):
-        return self._run(["launch", "--index", str(idx)])
-
-    def reboot_device(self, idx: int | str):
-        return self._run(["reboot", "--index", str(idx)])
-
-    def quit_device(self, idx: int | str):
-        return self._run(["quit", "--index", str(idx)])
-
-    def quit_all_devices(self):
-        return self._run(["quit-all"])
 
     def list_devices(self):
         """列出所有模拟器信息
@@ -47,43 +32,69 @@ class LDConsole(CMD):
         """
         return self._run(["list2"])
 
-    def adb(self, idx, cmd, encoding: str | None = None):
-        assert isinstance(cmd, str)
-        cmd = ["adb", "--index", str(idx), "--command", cmd]
-        logger.debug(f"LDConsole - {' '.join(cmd)}")
+    def launch_device(self, idx: int | str):
+        return self._run(["launch", "--index", str(idx)])
 
+    def is_running(self, idx: int | str):
+        r, _ = self._run(["isrunning", "--index", str(idx)])
+        return r == "running"
+
+    def getprop(self, idx: int | str, prop: str | None = None) -> str:
+        if prop:
+            out, _ = self._run(["getprop", "--index", str(idx), "--key", prop])
+        else:
+            out, _ = self._run(["getprop", "--index", str(idx)])
+        return out.strip()
+
+    # setprop <--name mnq_name | --index mnq_idx> --key <name> --value <val>
+    def setprop(self, idx: int | str, prop: str, val: str):
+        return self._run(
+            ["setprop", "--index", str(idx), "--key", prop, "--value", val]
+        )
+
+    # installapp <--name mnq_name | --index mnq_idx> --filename <apk_file_name>
+    def install_app(self, idx: int | str, apk_path: str):
+        return self._run(["installapp", "--index", str(idx), "--filename", apk_path])
+
+    # uninstallapp <--name mnq_name | --index mnq_idx> --packagename <apk_package_name>
+    def uninstall_app(self, idx: int | str, package_name: str):
+        return self._run(
+            ["uninstallapp", "--index", str(idx), "--packagename", package_name]
+        )
+
+    # runapp <--name mnq_name | --index mnq_idx> --packagename <apk_package_name>
+    def run_app(self, idx: int | str, package_name: str):
+        return self._run(["runapp", "--index", str(idx), "--packagename", package_name])
+
+    # killapp <--name mnq_name | --index mnq_idx> --packagename <apk_package_name>
+    def kill_app(self, idx: int | str, package_name: str):
+        return self._run(
+            ["killapp", "--index", str(idx), "--packagename", package_name]
+        )
+
+    # locate <--name mnq_name | --index mnq_idx> --LLI <Lng,Lat>
+    def locate(self, idx: int | str, lng: float, lat: float):
+        return self._run(["locate", "--index", str(idx), "--LLI", f"{lng},{lat}"])
+
+    def reboot_device(self, idx: int | str):
+        return self._run(["reboot", "--index", str(idx)])
+
+    def quit_device(self, idx: int | str):
+        return self._run(["quit", "--index", str(idx)])
+
+    def quit_all_devices(self):
+        return self._run(["quit-all"])
+
+    def adb(self, idx, cmd: str | list, encoding: str | None = None):
+        if isinstance(cmd, list):
+            cmd = " ".join(cmd)
+        cmd = ["adb", "--index", str(idx), "--command", cmd]
         return self._run(cmd, encoding=encoding)
 
-    def adb_daemon(self, idx, cmd, encoding: str | None = None):
-        assert isinstance(cmd, str)
-        cmd = ["adb", "--index", str(idx), "--command", cmd]
-        logger.debug(f"LDConsole - {' '.join(cmd)}")
-        self._run_daemon(cmd)
-
-    def adb_shell(self, idx, cmd: str | list, encoding: str | None = None):
-        logger.debug(f"LDConsole - {idx}, {cmd}")
+    def adb_shell(self, idx, cmd: str, encoding: str | None = None):
         if isinstance(cmd, list):
             cmd = " ".join(cmd)
         return self.adb(idx, f"shell {cmd}", encoding=encoding)
-
-    def adb_shell_daemon(self, idx, cmd: str | list, encoding: str | None = None):
-        logger.debug(f"LDConsole - {idx}, {cmd}")
-        if isinstance(cmd, list):
-            cmd = " ".join(cmd)
-        self.adb_daemon(idx, f"shell {cmd}", encoding=encoding)
-
-
-class LDPlayerInfo(DeviceInfo):
-    def __init__(self, index: str, name: str, path: str) -> None:
-        self.index = index
-        self.name = name
-        self.console_path = path
-
-    def __eq__(self, __value: object) -> bool:
-        if not isinstance(__value, LDPlayerInfo):
-            return False
-
-        return self.index == __value.index and self.console_path == __value.console_path
 
 
 def find_adb():
@@ -94,105 +105,48 @@ def find_adb():
 
 
 class LDPlayer(Device):
-    """
-    adb 有两种选择
-    1. 使用 adb
-    2. 使用 console的adb命令。
-    """
+    """雷电模拟器"""
 
-    def __init__(self, info: LDPlayerInfo) -> None:
+    def __init__(self, info: DeviceInfo) -> None:
         self.index = info.index
         self.name = info.name
         self.ldconsole = LDConsole(info.console_path)
-        super().__init__(info)
+
+    def is_boot(self):
+        return self.ldconsole.is_running(self.index)
 
     def launch(self):
+        if self.is_boot():
+            return
         self.ldconsole.launch_device(self.info.index)
-        if not find_adb():
-            self.adb_daemon("start-server")
-            sleep(3)
 
-        while True:
-            r = self.get_status()
-            if r is DeviceStatus.RUN:
-                break
-            if r is DeviceStatus.ADB_ERR:
-                self.adb("kill-server")
-                sleep(3)
-                self.adb_daemon("start-server")
-                sleep(3)
-            sleep(1)
-        sleep(10)
+    def getprop(self, prop: str | None = None):
+        return self.ldconsole.getprop(self.index, prop)
+
+    def install_app(self, apk_path: str):
+        r = self.ldconsole.install_app(self.index, apk_path)
+        return True, str(r[0] + r[1])
+
+    def uninstall_app(self, package_name: str):
+        self.ldconsole.uninstall_app(self.index, package_name)
+
+    def run_app(self, package):
+        self.ldconsole.run_app(self.index, package)
+        return True
 
     def close(self):
         self.ldconsole.quit_device(self.index)
-        while True:
-            r = self.get_status()
-            if r is DeviceStatus.STOP:
-                break
-            sleep(1)
 
     def reboot(self):
         self.ldconsole.reboot_device(self.index)
-        while True:
-            r = self.get_status()
-            if r is DeviceStatus.RUN:
-                break
-            if r is DeviceStatus.ADB_ERR:
-                self.adb("kill-server")
-                sleep(3)
-                self.adb("start-server")
-                sleep(3)
-            sleep(1)
-        sleep(10)
-
-    def get_status(self):
-        status = DeviceStatus.UNKNOWN
-        out, _ = self.ldconsole.list_devices()
-        for line in out.strip().split("\n"):
-            if self.name not in line:
-                continue
-            parts = line.split(",")
-            status = DeviceStatus.get(parts[4])
-            break
-
-        if status is DeviceStatus.RUN:
-            out, err = self.adb_shell("ps")
-            if "offline" in out or "not found" in out:
-                status = DeviceStatus.ADB_ERR
-
-            # adb.exe: device offline
-            elif self.is_crashed():
-                status = DeviceStatus.ERORR
-
-        return status
+        return self.get_status()
 
     def adb(self, cmd: str | list, encoding: str | None = None):
         if isinstance(cmd, list):
             cmd = " ".join(cmd)
-        logger.debug(f"LDPlayer - {cmd}")
         return self.ldconsole.adb(self.index, cmd, encoding=encoding)
 
     def adb_shell(self, cmd: str | list, encoding: str | None = None):
-        logger.debug(f"LDPlayer - {cmd}")
         if isinstance(cmd, list):
             cmd = " ".join(cmd)
-        if isinstance(cmd, str):
-            cmd = f"shell {cmd}"
-
-        return self.adb(cmd, encoding=encoding)
-
-    def adb_daemon(self, cmd: str | list, encoding: str | None = None):
-        if isinstance(cmd, list):
-            cmd = " ".join(cmd)
-        logger.debug(f"LDPlayer - {cmd}")
-        self.ldconsole.adb_daemon(self.index, cmd, encoding=encoding)
-
-    def adb_shell_daemon(self, cmd: str | list, encoding: str | None = None):
-        logger.debug(f"LDPlayer - {cmd}")
-        if isinstance(cmd, list):
-            cmd = " ".join(cmd)
-        if isinstance(cmd, str):
-            cmd = f"shell {cmd}"
-
-        self.adb_daemon(cmd, encoding=encoding)
+        return self.ldconsole.adb_shell(self.index, cmd, encoding=encoding)
