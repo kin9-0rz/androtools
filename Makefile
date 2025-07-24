@@ -11,4 +11,4 @@ build: ## build
 	rye build --wheel
 
 publish: build ## 发布
-	rye publish
+	twine upload dist/*.whl
