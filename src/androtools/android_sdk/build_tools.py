@@ -2,6 +2,7 @@ from enum import Enum
 import shutil
 
 from androtools.android_sdk import CMD
+from androtools.android_sdk.abc import SubSubCommand
 
 
 class AAPT:
@@ -9,9 +10,11 @@ class AAPT:
         self.aapt_path = shutil.which("aapt")
 
 
-class Dump(Enum):
+class Dump(SubSubCommand):
     permissions = ["dump", "permissions"]
+    """aapt2 dump permissions <apk>"""
     badging = ["dump", "badging"]
+    """aapt2 dump badging <apk>"""
     packagename = ["dump", "packagename"]
     strings = ["dump", "strings"]
     styleparents = ["dump", "styleparents"]

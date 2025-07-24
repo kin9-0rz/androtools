@@ -108,6 +108,7 @@ class LDPlayer(Device):
     """雷电模拟器"""
 
     def __init__(self, info: DeviceInfo) -> None:
+        super().__init__(info)
         self.index = info.index
         self.name = info.name
         self.ldconsole = LDConsole(info.console_path)

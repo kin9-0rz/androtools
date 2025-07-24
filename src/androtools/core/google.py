@@ -78,8 +78,9 @@ class GEmu(Device):
         self._emulator = Emulator(info.emu_path)
 
         # 设备初始化，则表示设备一定存在
-        state = self._get_state()
+        state = self.get_status()
         logger.debug(f"设备 {self.name} 状态: {state.value}")
+        print("->>>>>>>>>>>>>>>", state)
         if state != G_STATE.DEVICE:
             raise RuntimeError(f"Device is {state.value}")
 
@@ -136,9 +137,6 @@ class GEmu(Device):
 
     def _get_state(self):
         output, error = self._adb.run_cmd(["get-state"])
-        # output: ['device']
-        # error: error: device offline
-        # error: device 'emulator-5556' not found
 
         output = "".join(output) + error
 
@@ -151,13 +149,17 @@ class GEmu(Device):
 
         # 设备无法控制
         if "offline" in output:
-            return G_STATE.DEVICE
+            return G_STATE.OFFLINE
 
         # 设备可以重启
         if "bootloader" in output:
             return G_STATE.BOOTLOADER
 
         return G_STATE.UNKNOWN
+
+    def is_boot(self) -> bool:
+        status = self._get_state()
+        return status == G_STATE.DEVICE
 
     # def adb_shell(self, cmd: str | list, encoding: str | None = None):
     def adb_shell(self, cmd: str | list):

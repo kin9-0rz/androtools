@@ -13,7 +13,8 @@ def test_run_cmd(adb):
 
 
 def test_run_shell_cmd(adb: ADB):
-    output, err = adb.run_shell_cmd(None, ["ps"])
+    # output, err = adb.run_shell_cmd(None, ["ps"])
+    output, err = adb.run_shell_cmd(["ps"])
     if "more than one device/emulator" in err:
         return
     assert "zygote" in output

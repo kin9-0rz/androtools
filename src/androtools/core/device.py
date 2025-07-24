@@ -23,6 +23,7 @@ class DeviceInfo:
     version: int  # 模拟器版本, 如 9 表示 Android 9
     adb_path: str  # adb 路径
     console_path: str  # 模拟器控制器；雷电模拟器则是 ldconsole
+    gateway: str  # 网关IP
 
     def __eq__(self, __value: object) -> bool:
         if not isinstance(__value, DeviceInfo):
@@ -94,7 +95,6 @@ class Device(ABC):
         self.info = info
         self._adb_wrapper: ADB = ADB(info.adb_path)
         self.android_version = info.version
-
         self.sdk = None
 
     def get_android_version(self):
