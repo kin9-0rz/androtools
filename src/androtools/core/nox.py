@@ -182,20 +182,6 @@ class NoxPlayer(Device):
     def getprop(self, prop: str | None = None):
         return self.nox_console.getprop(self.index, prop)
 
-    def grant_permission(self, package_name: str, permission: str):
-        self.adb_shell(["pm", "grant", package_name, permission])
-
-    def grant_all_permissions(self, package_name: str):
-        r = self.adb_shell(["pm", "dump", package_name, "|", "grep", "granted=false"])
-        for line in r[0].split("\n"):
-            line = line.strip()
-            if line == "":
-                continue
-            if "granted=false" not in line:
-                continue
-            perm = line.split(":")[0]
-            self.grant_permission(package_name, perm)
-
     def get_serial(self):
         """ADB 模式，则需要获取模拟器的序列号"""
         ports = set()

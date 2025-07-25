@@ -237,6 +237,20 @@ class Device(ABC):
         logger.error(output)
         logger.error(error, stack_info=True)
 
+    def grant_permission(self, package_name: str, permission: str):
+        self.adb_shell(["pm", "grant", package_name, permission])
+
+    def grant_all_permissions(self, package_name: str):
+        r = self.adb_shell(["pm", "dump", package_name, "|", "grep", "granted=false"])
+        for line in r[0].split("\n"):
+            line = line.strip()
+            if line == "":
+                continue
+            if "granted=false" not in line:
+                continue
+            perm = line.split(":")[0]
+            self.grant_permission(package_name, perm)
+
     def run_app(self, package: str) -> bool:
         """启动一个应用
 
