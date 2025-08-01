@@ -85,18 +85,22 @@ class WorkStatus(Enum):
 class DeviceConsole(CMD):
     """模拟器控制台，用于控制模拟器的启动和关闭。"""
 
+    @abstractmethod
     def launch_device(self, idx: int | str):
         """启动模拟器"""
         pass
 
+    @abstractmethod
     def reboot_device(self, idx: int | str):
         """重启模拟器"""
         pass
 
+    @abstractmethod
     def quit_device(self, idx: int | str):
         """关闭模拟器"""
         pass
 
+    @abstractmethod
     def quit_all_devices(self):
         """关闭所有的模拟器"""
         pass

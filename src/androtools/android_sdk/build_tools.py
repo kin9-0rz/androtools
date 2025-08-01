@@ -1,4 +1,3 @@
-from enum import Enum
 import shutil
 
 from androtools.android_sdk import CMD

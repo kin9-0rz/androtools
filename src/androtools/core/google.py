@@ -1,5 +1,4 @@
 from enum import Enum
-from time import sleep
 
 from func_timeout import FunctionTimedOut, func_timeout
 
@@ -203,10 +202,6 @@ class GEmu(Device):
         cmd += f"-{state}"
         output, error = self.adb([cmd])
         return output, error
-
-    def reboot(self):
-        self.adb_shell(["reboot"])
-        sleep(5)
 
     def is_boot_completed(self) -> bool:
         """判断设备是否处于开机状态"""
