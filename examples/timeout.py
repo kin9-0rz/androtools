@@ -1,9 +1,10 @@
 from enum import Enum
 from time import sleep
 
-from func_timeout import FunctionTimedOut, func_timeout
+from func_timeout import FunctionTimedOut, func_set_timeout
 
 
+@func_set_timeout(1)
 def hello():
     print("1")
     sleep(2)

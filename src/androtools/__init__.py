@@ -1,24 +1,28 @@
 import sys
-from logging import DEBUG, INFO, getLevelName
+from logging import DEBUG, getLevelName
 from typing import TextIO
 
-from loguru import logger
+from loguru import logger as _logger
 
-DEBUG_MODE = False
+my_logger = _logger.bind(logger_name="androtools")
 
-_level: str = getLevelName(DEBUG) if DEBUG_MODE else getLevelName(INFO)
-_sink: str | TextIO = sys.stdout if DEBUG_MODE else f"{__name__}.log"
-
-if 0 in logger._core.handlers:  # type: ignore
-    logger.remove(0)
+if 0 in my_logger._core.handlers:  # type: ignore
+    my_logger.remove(0)
 
 
 def log_filter(record):
     return __name__ in record["file"].path
 
 
-if DEBUG_MODE:
-    logger.add(
+def turn_on_logger(level: int = DEBUG, to_file: bool = False):
+    """打开日志
+
+    level 日志级别, logging.DEBUG, logging.INFO 等等。
+    默认在屏幕输出，如果日志过多，可以考虑输出到文件
+    """
+    _level: str = getLevelName(level)
+    _sink: str | TextIO = f"{__name__}.log" if to_file else sys.stdout
+    my_logger.add(
         _sink,
         filter=log_filter,
         level=_level,

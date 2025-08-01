@@ -1,9 +1,11 @@
 import os
+import time
 import shutil
 import subprocess
 from enum import Enum
 
-from loguru import logger
+from func_timeout import FunctionTimedOut, func_timeout
+from androtools import my_logger as logger
 
 
 class SubSubCommand(Enum):
@@ -50,7 +52,7 @@ class CMD:
         for item in cmd:
             assert isinstance(item, str)
         args = self._build_cmds(cmd)
-        logger.debug("CMD [_run] " + " ".join(args))
+        logger.debug(" ".join(args))
 
         r = subprocess.run(
             args,
@@ -61,24 +63,46 @@ class CMD:
             text=True,
         )
 
-        return r.stdout, r.stderr
+        return r.stdout.strip(), r.stderr.strip()
 
     def _run_daemon(self, args: list[str]):
         """运行后台命令，直接运行命令，不需要获取结果。"""
         cmd_list = self._build_cmds(args)
-        logger.debug("CMD [_run_deamon] " + " ".join(cmd_list))
+        logger.debug(" ".join(cmd_list))
         try:
             proc = subprocess.Popen(
                 cmd_list,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                shell=False,
             )
 
+            out = ""
             try:
-                proc.wait(10)
-            except Exception:
+                stdout = proc.stdout
+                if stdout:
+                    bs = func_timeout(3, stdout.read)
+                    if bs:
+                        out = bs.decode("utf-8")
+
+            except FunctionTimedOut:
                 pass
+
+            err = ""
+            try:
+                stderr = proc.stderr
+                if stderr:
+                    bs = func_timeout(3, stderr.read)
+                    if bs:
+                        err = bs.decode("utf-8")
+
+            except FunctionTimedOut:
+                pass
+
+            if out:
+                logger.debug(out)
+            if err:
+                logger.error(" ".join(cmd_list))
+                logger.error(err)
 
         except Exception as err:
             logger.error(cmd_list)

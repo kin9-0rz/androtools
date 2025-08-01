@@ -3,9 +3,9 @@ from enum import Enum
 from time import sleep
 
 import psutil
-from loguru import logger
 
 from androtools.android_sdk import CMD
+from androtools import my_logger as logger
 
 
 class DeviceType(Enum):
@@ -38,7 +38,6 @@ class ADB(CMD):
 
     def run_cmd(self, cmd: list[str], serial: str | None = None):
         """执行 adb 命令"""
-        logger.debug(f"{cmd}")
         assert isinstance(cmd, list)
         if serial is not None:
             cmd = ["-s", serial] + cmd
@@ -48,11 +47,9 @@ class ADB(CMD):
         """执行 adb shell 命令"""
         assert isinstance(cmd, list)
         cmd = ["shell"] + cmd
-        logger.debug(f"{cmd}")
         return self.run_cmd(cmd, serial)
 
     def run_cmd_daemon(self, cmd: list[str]):
-        logger.debug(f"{cmd}")
         self._run_daemon(cmd)
 
     def run_shell_cmd_daemon(self, cmd: list[str], serial: str | None = None):
@@ -65,7 +62,7 @@ class ADB(CMD):
 
     def help(self):
         output, _ = self.run_cmd([])
-        logger.debug(output)
+        return output
 
     def get_devices(self, max_tries=10):
         devices = []
