@@ -2,8 +2,8 @@ from enum import Enum
 from time import sleep
 
 from func_timeout import FunctionTimedOut, func_timeout
-from loguru import logger
 
+from androtools import logger
 from androtools.android_sdk.emulator import Emulator
 from androtools.android_sdk.platform_tools import ADB
 from androtools.core.constants import Android_API_MAP

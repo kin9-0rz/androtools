@@ -5,7 +5,7 @@ import subprocess
 from enum import Enum
 
 from func_timeout import FunctionTimedOut, func_timeout
-from androtools import my_logger as logger
+from androtools import logger
 
 
 class SubSubCommand(Enum):

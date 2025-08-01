@@ -5,7 +5,7 @@ from time import sleep
 import psutil
 
 from androtools.android_sdk import CMD
-from androtools import my_logger as logger
+from androtools import logger
 
 
 class DeviceType(Enum):

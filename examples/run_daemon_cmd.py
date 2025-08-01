@@ -15,4 +15,3 @@ output, _ = adb.run_shell_cmd(["ps"])
 for line in output.splitlines():
     if "frida" in line:
         print(line)
-

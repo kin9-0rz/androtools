@@ -1,13 +1,13 @@
 # Android模拟器、雷电模拟器的基类
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
 from typing import Literal, Sequence
-import time
 
 from func_timeout import FunctionTimedOut, func_timeout
-from loguru import logger
 
+from androtools import logger
 from androtools.android_sdk import CMD
 from androtools.android_sdk.platform_tools import ADB
 from androtools.core.constants import Android_API_MAP, KeyEvent
