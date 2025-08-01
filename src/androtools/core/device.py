@@ -13,10 +13,27 @@ from androtools.android_sdk.platform_tools import ADB
 from androtools.core.constants import Android_API_MAP, KeyEvent
 
 
+class DeviceType(Enum):
+    """模拟器类型"""
+
+    LD = "ld"
+    NOX = "nox"
+    UNKNOWN = "unknown"
+
+    @staticmethod
+    def get(value: str):
+        value = value.lower()
+        for item in DeviceType:
+            if item.value == value:
+                return item
+        return DeviceType.UNKNOWN
+
+
 @dataclass
 class DeviceInfo:
     """模拟器信息"""
 
+    device_type: DeviceType
     index: str  # 模拟器序号，雷电模拟器、夜神模拟器的序号
     serial: str | None  # 模拟器序列号，adb -s 的操作对象
     name: str  # 模拟器名称，它可以修改。
@@ -24,6 +41,7 @@ class DeviceInfo:
     adb_path: str  # adb 路径
     console_path: str  # 模拟器控制器；雷电模拟器则是 ldconsole
     gateway: str  # 网关IP
+    proxy_port: int  # mitmproxy 代理端口
 
     def __eq__(self, __value: object) -> bool:
         if not isinstance(__value, DeviceInfo):
