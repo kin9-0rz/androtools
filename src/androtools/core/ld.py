@@ -1,10 +1,12 @@
 # 雷电模拟器
 import shutil
+from time import sleep
 
 import psutil
 
 from androtools.android_sdk import CMD
 from androtools.core.device import Device, DeviceInfo
+from androtools import logger
 
 
 class LDConsole(CMD):
@@ -113,8 +115,45 @@ class LDPlayer(Device):
         self.name = info.name
         self.ldconsole = LDConsole(info.console_path)
 
+    def kill_app(self, package):
+        self.ldconsole.kill_app(self.index, package)
+
     def is_boot(self):
         return self.ldconsole.is_running(self.index)
+
+    def is_crashed(self):
+        """
+        判断模拟器是否没响应，如果没响应，则定义为模拟器崩溃
+        需要判断设备崩溃吗？
+        """
+        # NOTE - 注意：每个模拟器的情况不一样！
+
+        # 启动 com.android.settings
+        self.adb_shell(["am", "start", "com.android.settings"])
+        sleep(3)
+        # dumpsys window windows | grep mCurrentFocus
+        out, _ = self.adb_shell(
+            ["dumpsys", "window", "windows", "|", "grep", "mCurrentFocus"]
+        )
+        if "com.android.settings" not in out:
+            logger.warning(f"[{self.name}] 无法启动设置，杀死系统界面，重新启动设置。")
+            self.kill_app("com.android.launcher3")
+            self.adb_shell(["am", "start", "com.android.settings"])
+            out, _ = self.adb_shell(
+                ["dumpsys", "window", "windows", "|", "grep", "mCurrentFocus"]
+            )
+            if "com.android.settings" not in out:
+                logger.warning(f"[{self.name}] 无法启动设置，可能需要重启模拟器。")
+                return True
+
+        self.home()
+        out, _ = self.adb_shell(
+            ["dumpsys", "window", "windows", "|", "grep", "mCurrentFocus"]
+        )
+        if "com.android.launcher3" not in out:
+            logger.warning(f"[{self.name}] 回到桌面失败，请检查模拟器是否正常启动。")
+            return True
+        return False
 
     def launch(self):
         if self.is_boot():
@@ -142,12 +181,12 @@ class LDPlayer(Device):
         self.ldconsole.reboot_device(self.index)
         return self.get_status()
 
-    def adb(self, cmd: str | list, encoding: str | None = None):
+    def adb_by_console(self, cmd: str | list, encoding: str | None = None):
         if isinstance(cmd, list):
             cmd = " ".join(cmd)
         return self.ldconsole.adb(self.index, cmd, encoding=encoding)
 
-    def adb_shell(self, cmd: str | list, encoding: str | None = None):
+    def adb_shell_by_console(self, cmd: str | list, encoding: str | None = None):
         if isinstance(cmd, list):
             cmd = " ".join(cmd)
         return self.ldconsole.adb_shell(self.index, cmd, encoding=encoding)

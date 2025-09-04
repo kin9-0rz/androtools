@@ -1,13 +1,14 @@
 # Android模拟器、雷电模拟器的基类
-import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
 from typing import Literal, Sequence
+import time
+import subprocess
 
 from func_timeout import FunctionTimedOut, func_timeout
+from loguru import logger
 
-from androtools import logger
 from androtools.android_sdk import CMD
 from androtools.android_sdk.platform_tools import ADB
 from androtools.core.constants import Android_API_MAP, KeyEvent
@@ -60,14 +61,20 @@ class DeviceInfo:
 class DeviceStatus(Enum):
     """模拟器状态"""
 
-    STOP = "-1"  # 停止
+    STOP = "-1"  # 停止，设备还没启动
     BOOT = "0"  # 1. 设备启动，存在PID
-    BOOT_COMPLETED = "1"  # 2. 设备启动完毕
-    RUN = "2"  # 3. 设备启动完毕，并且已经进入了系统界面。
-    HANG_UP = "3"  # 挂起
+    DEVICE = "1"  # 设备已连接
+    BOOT_COMPLETED = "2"  # 2. 设备启动完毕
+    OFFLINE = "3"
+    """
+    设备离线
+
+    1、启动过程中，等待启动完毕。<br>
+    2、启动完毕，adb 无法操作，只能重启。
+    """
     ERORR = "4"  # 模拟器执行 adb 命令没响应，则为错误，需要重启模拟器
-    ADB_ERR = "5"  # 模拟器已经启动，但是，adb 找不到设备
-    UNKNOWN = "6"  # 未知
+    UNKNOWN = "5"  # 未知
+    RUNNING = "6"  # 设备正在运行
 
     @staticmethod
     def get(value: str):
@@ -85,22 +92,18 @@ class WorkStatus(Enum):
 class DeviceConsole(CMD):
     """模拟器控制台，用于控制模拟器的启动和关闭。"""
 
-    @abstractmethod
     def launch_device(self, idx: int | str):
         """启动模拟器"""
         pass
 
-    @abstractmethod
     def reboot_device(self, idx: int | str):
         """重启模拟器"""
         pass
 
-    @abstractmethod
     def quit_device(self, idx: int | str):
         """关闭模拟器"""
         pass
 
-    @abstractmethod
     def quit_all_devices(self):
         """关闭所有的模拟器"""
         pass
@@ -115,9 +118,24 @@ class Device(ABC):
     # FIXME 定义接口，不要具体的实现
     def __init__(self, info: DeviceInfo) -> None:
         self.info = info
+        self.name = info.name
         self._adb_wrapper: ADB = ADB(info.adb_path)
         self.android_version = info.version
         self.sdk = None
+        self.status = DeviceStatus.STOP
+        self._is_busy = False
+
+    @property
+    def is_busy(self) -> bool:
+        return self._is_busy
+
+    @is_busy.setter
+    def is_busy(self, value: bool) -> None:
+        self._is_busy = value
+
+    @property
+    def adb_wrapper(self) -> ADB:
+        return self._adb_wrapper
 
     def get_android_version(self):
         if self.sdk is None:
@@ -128,7 +146,7 @@ class Device(ABC):
             self.android_version = result[0]
 
     def __str__(self) -> str:
-        return f"{self.info.name}-{self.android_version}({self.sdk})"
+        return f"{self.info.name}-{self.android_version}"
 
     @abstractmethod
     def is_boot(self) -> bool:
@@ -141,37 +159,100 @@ class Device(ABC):
     def is_crashed(self):
         """判断模拟器是否没响应，如果没响应，则定义为模拟器崩溃"""
         try:
-            # 点击HOME键，超过5秒没反应
+            # FIXME - 夜神模拟器存在点击home按键卡死。
             func_timeout(5, self.home)
         except FunctionTimedOut:
             return True
         return False
 
+    def is_timeout(self, seconds: int = 3):
+        """判断模拟器是否超时，命令执行超时，说明模拟器已经卡死，需要重启"""
+        try:
+            assert self.info.serial is not None
+            # 执行 adb 命令，不显示输出， 设置 3 秒超时
+            subprocess.run(
+                [self.info.adb_path, "-s", self.info.serial, "shell", "ps"],
+                timeout=seconds,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except subprocess.TimeoutExpired:
+            return True
+        return False
+
+    # TODO 尝试启动设备
+    # 设备第一次，必须要确认是否已经启动
+    def launch_and_wait_for_device(self):
+        status = self.get_status()
+        if status == DeviceStatus.BOOT_COMPLETED:
+            logger.debug(f"设备 {self.name} 已经启动")
+            self.status = DeviceStatus.RUNNING
+            return
+
+        logger.debug(f"设备 {self.name} 尝试启动")
+        if self.status == DeviceStatus.STOP:
+            self.launch()
+
+            while True:
+                time.sleep(5)
+                if self.is_boot():
+                    break
+
+            counter = 0
+            while True:
+                counter += 1
+                time.sleep(5)
+                out, _ = self.adb(["get-state"])
+                if "device" in out:
+                    break
+                # 如果超过20次，也就是100秒，还没启动完毕，必然是存在问题的，建议重启。
+                if counter > 20:
+                    self.close()
+                    self.launch_and_wait_for_device()
+                    return
+
+            self.reconnect()
+            while True:
+                time.sleep(5)
+                if self.is_boot_completed():
+                    break
+
+            self.status = DeviceStatus.RUNNING
+
+    def reconnect(self):
+        self.adb(["reconnect"])
+
+    # 获取此时此刻模拟器的状态
     def get_status(self):
         status = DeviceStatus.STOP
         if self.is_boot():
             status = DeviceStatus.BOOT
         else:
+            return status  # 模拟器未启动
+
+        # 刷新模拟器的状态
+        self.reconnect()
+        time.sleep(3)
+
+        logger.debug(f"Device status: {status}")
+
+        # 如果设备还没启动，就会这样子
+        # adb.exe -s emulator-5556 get-state
+        # error: device 'emulator-5556' not found
+        out, err = self.adb(["get-state"])
+        if "device" in out:
+            logger.debug("Device is not ready")
+            status = DeviceStatus.DEVICE
+        elif "offline" in err:
+            status = DeviceStatus.OFFLINE
             return status
+        logger.debug(f"Device status: {status}")
 
-        counter = 0
-        while True:
-            counter += 1
-            if counter > 60:
-                break
+        if self.is_boot_completed():
+            logger.debug("Boot completed")
+            status = DeviceStatus.BOOT_COMPLETED
 
-            if self.is_boot_completed():
-                status = DeviceStatus.BOOT_COMPLETED
-                break
-
-            # 5分钟
-            time.sleep(5)
-
-        if status is DeviceStatus.BOOT_COMPLETED:
-            if self.is_crashed():
-                status = DeviceStatus.ERORR
-            else:
-                status = DeviceStatus.RUN
+        logger.debug(f"Device status: {status}")
 
         return status
 
@@ -201,6 +282,8 @@ class Device(ABC):
     def adb_shell_daemon(self, cmd: list[str]):
         assert cmd is not None
         assert isinstance(cmd, list)
+        if isinstance(cmd, str):
+            raise TypeError(f"命令必须是列表：{cmd}")
         self._adb_wrapper.run_shell_cmd_daemon(cmd, self.info.serial)
 
     def getprop(self, prop: str | None = None) -> str:
@@ -350,7 +433,7 @@ class Device(ABC):
         self.adb_shell(["mkdir", path])
 
     def ps(self):
-        output, _ = self.adb_shell(["ps"])
+        output, _ = self.adb_shell(["ps", "-A"])
         return output
 
     def pidof(self, process_name):
@@ -456,32 +539,23 @@ class DeviceManager:
         self._device_map: dict[Device, WorkStatus] = {}
         self._device_map.clear()
         for dev in devices:
-            self._device_map[dev] = WorkStatus.Free
-            if dev.get_status() is not DeviceStatus.RUN:
-                dev.launch()
+            logger.info(f"初始化设备 {dev.name}")
+            dev.launch_and_wait_for_device()
 
-    def add(self, emu: Device):
-        if emu.get_status() is not DeviceStatus.RUN:
-            emu.launch()
-        self._device_map[emu] = WorkStatus.Free
+    def add(self, dev: Device):
+        dev.launch_and_wait_for_device()
 
     def remove(self, dev: Device):
         self._devices.remove(dev)
-        for device in self._device_map:
-            if device.info == dev:
-                device.close()
-                self._device_map.pop(device)
-                break
 
     def get_total(self) -> int:
-        return len(self._device_map)
+        return len(self._devices)
 
     def get_free_device(self) -> Device | None:
-        for device in self._device_map:
-            if self._device_map[device] == WorkStatus.Free:
-                self._device_map[device] = WorkStatus.Busy
-                logger.debug(f"free device: {device}")
-                return device
+        for dev in self._devices:
+            if dev.is_busy:
+                continue
+            return dev
         return None
 
     def free_busy_device(self, device: Device):
