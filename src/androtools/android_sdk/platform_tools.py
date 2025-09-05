@@ -14,6 +14,10 @@ class DeviceType(Enum):
     TransportID = 2  #  Android 8.0 (API level 26) adb version 1.0.41
 
 
+class DeviceOfflineError(Exception):
+    pass
+
+
 class ADB(CMD):
     """仅仅执行命令，仅仅执行adb命令，不执行与设备无关的命令，比如:adb shell
     请使用 Device。
@@ -36,6 +40,11 @@ class ADB(CMD):
 
         super().__init__(path)
 
+    @staticmethod
+    def build_su_cmd(cmd: list[str]):
+        cmd = ["su", "0"] + cmd
+        return cmd
+
     def run_cmd(self, cmd: list[str], serial: str | None = None):
         """执行 adb 命令"""
         assert isinstance(cmd, list)
@@ -47,7 +56,10 @@ class ADB(CMD):
         """执行 adb shell 命令"""
         assert isinstance(cmd, list)
         cmd = ["shell"] + cmd
-        return self.run_cmd(cmd, serial)
+        out, err = self.run_cmd(cmd, serial)
+        if "offline" in out:
+            raise DeviceOfflineError("设备已断开")
+        return out, err
 
     def run_cmd_daemon(self, cmd: list[str]):
         self._run_daemon(cmd)
