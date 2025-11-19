@@ -45,12 +45,12 @@ class ADB(CMD):
         cmd = ["su", "0"] + cmd
         return cmd
 
-    def run_cmd(self, cmd: list[str], serial: str | None = None):
-        """执行 adb 命令"""
+    def run_cmd(self, cmd: list[str], serial: str | None = None, timeout: int = 60):
+        """执行 adb 命令, 默认60s超时"""
         assert isinstance(cmd, list)
         if serial is not None:
             cmd = ["-s", serial] + cmd
-        return self._run(cmd)
+        return self._run(cmd, timeout=timeout)
 
     def run_shell_cmd(self, cmd: list[str], serial: str | None = None):
         """执行 adb shell 命令"""

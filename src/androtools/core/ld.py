@@ -34,6 +34,13 @@ class LDConsole(CMD):
         """
         return self._run(["list2"])
 
+    def get_pid(self, idx: int):
+        r, _ = self.list_devices()
+        lines = r.splitlines()
+        line = lines[idx]
+        parts = line.split(",")
+        return parts[6]
+
     def launch_device(self, idx: int | str):
         return self._run(["launch", "--index", str(idx)])
 
@@ -115,6 +122,19 @@ class LDPlayer(Device):
         self.name = info.name
         self.ldconsole = LDConsole(info.console_path)
 
+    def get_pid(self) -> int:
+        pid = self.ldconsole.get_pid(int(self.index))
+        return int(pid)
+
+    def get_memory_rss(self):
+        """获取常驻内存大小字节"""
+        pid = self.get_pid()
+        if pid == -1:
+            return
+        proc = psutil.Process(pid)
+        mem_info = proc.memory_info()
+        return mem_info.rss
+
     def kill_app(self, package):
         self.ldconsole.kill_app(self.index, package)
 
@@ -163,11 +183,11 @@ class LDPlayer(Device):
     def getprop(self, prop: str | None = None):
         return self.ldconsole.getprop(self.index, prop)
 
-    def install_app(self, apk_path: str):
+    def install_app_by_console(self, apk_path: str):
         r = self.ldconsole.install_app(self.index, apk_path)
         return True, str(r[0] + r[1])
 
-    def uninstall_app(self, package_name: str):
+    def uninstall_app_by_console(self, package_name: str):
         self.ldconsole.uninstall_app(self.index, package_name)
 
     def run_app(self, package):

@@ -46,7 +46,13 @@ class CMD:
         if is_reset:
             self.reset()
 
-    def _run(self, cmd: list[str], shell: bool = False, encoding: str | None = None):
+    def _run(
+        self,
+        cmd: list[str],
+        shell: bool = False,
+        encoding: str | None = None,
+        timeout: int | None = None,
+    ):
         """运行阻塞命令，等待结果。"""
         assert isinstance(cmd, list)
         for item in cmd:
@@ -54,16 +60,19 @@ class CMD:
         args = self._build_cmds(cmd)
         logger.debug(" ".join(args))
 
-        r = subprocess.run(
-            args,
-            shell=shell,  # 例如使用通配符、管道或重定向时，须使用shell
-            encoding=encoding,
-            errors="ignore",
-            capture_output=True,
-            text=True,
-        )
-
-        return r.stdout.strip(), r.stderr.strip()
+        try:
+            r = subprocess.run(
+                args,
+                shell=shell,  # 例如使用通配符、管道或重定向时，须使用shell
+                encoding=encoding,
+                errors="ignore",
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+            return r.stdout.strip(), r.stderr.strip()
+        except Exception as e:
+            return "", f"error: {e}"
 
     def _run_daemon(self, args: list[str]):
         """运行后台命令，直接运行命令，不需要获取结果。"""

@@ -7,7 +7,7 @@ import time
 import subprocess
 
 from func_timeout import FunctionTimedOut, func_timeout
-from loguru import logger
+from androtools import logger
 
 from androtools.android_sdk import CMD
 from androtools.android_sdk.platform_tools import ADB
@@ -124,6 +124,7 @@ class Device(ABC):
         self.sdk = None
         self.status = DeviceStatus.STOP
         self._is_busy = False
+        self.pid = -1
 
     @property
     def is_busy(self) -> bool:
@@ -180,14 +181,16 @@ class Device(ABC):
             return True
         return False
 
-    # TODO 尝试启动设备
-    # 设备第一次，必须要确认是否已经启动
     def launch_and_wait_for_device(self):
+        """设备第一次，必须要确认是否已经启动
+        1. 判断设备是否已经启动，如果没有启动，则启动设备。
+
+        """
         status = self.get_status()
         if status == DeviceStatus.BOOT_COMPLETED:
             logger.debug(f"设备 {self.name} 已经启动")
-            self.status = DeviceStatus.RUNNING
-            return
+            self.status = status
+            return True
 
         logger.debug(f"设备 {self.name} 尝试启动")
         if self.status == DeviceStatus.STOP:
@@ -201,23 +204,19 @@ class Device(ABC):
             counter = 0
             while True:
                 counter += 1
-                time.sleep(5)
-                out, _ = self.adb(["get-state"])
-                if "device" in out:
+                status = self.get_status()
+                if status == DeviceStatus.BOOT_COMPLETED:
+                    self.status = DeviceStatus.RUNNING
                     break
-                # 如果超过20次，也就是100秒，还没启动完毕，必然是存在问题的，建议重启。
-                if counter > 20:
+                time.sleep(6)
+
+                # NOTE: 1分钟
+                if counter > 10:
+                    logger.warning(f"设备 {self.name} 启动超时, 建议重新启动")
                     self.close()
-                    self.launch_and_wait_for_device()
-                    return
-
-            self.reconnect()
-            while True:
-                time.sleep(5)
-                if self.is_boot_completed():
-                    break
-
-            self.status = DeviceStatus.RUNNING
+                    self.status = DeviceStatus.STOP
+                    return False
+        return True
 
     def reconnect(self):
         self.adb(["reconnect"])
@@ -232,28 +231,24 @@ class Device(ABC):
 
         # 刷新模拟器的状态
         self.reconnect()
-        time.sleep(3)
-
-        logger.debug(f"Device status: {status}")
+        self.reconnect()
+        self.reconnect()
 
         # 如果设备还没启动，就会这样子
         # adb.exe -s emulator-5556 get-state
         # error: device 'emulator-5556' not found
         out, err = self.adb(["get-state"])
         if "device" in out:
-            logger.debug("Device is not ready")
             status = DeviceStatus.DEVICE
         elif "offline" in err:
             status = DeviceStatus.OFFLINE
+            logger.debug(f"设备 [{self.name}] 状态: {status}")
             return status
-        logger.debug(f"Device status: {status}")
 
         if self.is_boot_completed():
-            logger.debug("Boot completed")
             status = DeviceStatus.BOOT_COMPLETED
 
-        logger.debug(f"Device status: {status}")
-
+        logger.debug(f"设备 [{self.name}] 状态: {status}")
         return status
 
     def launch(self):
