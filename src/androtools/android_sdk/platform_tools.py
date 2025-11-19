@@ -4,7 +4,7 @@ from time import sleep
 
 import psutil
 
-from androtools.android_sdk import CMD
+from androtools.cmd import CMD
 from androtools import logger
 
 
@@ -56,10 +56,10 @@ class ADB(CMD):
         """执行 adb shell 命令"""
         assert isinstance(cmd, list)
         cmd = ["shell"] + cmd
-        out, err = self.run_cmd(cmd, serial)
-        if "offline" in out:
+        result = self.run_cmd(cmd, serial)
+        if result.contain("offline"):
             raise DeviceOfflineError("设备已断开")
-        return out, err
+        return result
 
     def run_cmd_daemon(self, cmd: list[str]):
         self._run_daemon(cmd)
@@ -73,8 +73,8 @@ class ADB(CMD):
         self._run_daemon(cmd)
 
     def help(self):
-        output, _ = self.run_cmd([])
-        return output
+        result = self.run_cmd([])
+        return result.output
 
     def get_devices(self, max_tries=10):
         devices = []
@@ -88,8 +88,8 @@ class ADB(CMD):
             self.run_cmd(["devices", "-l"])
             self.run_cmd(["devices", "-l"])
 
-            output, _ = self.run_cmd(["devices", "-l"])
-            output = output.strip()
+            result = self.run_cmd(["devices", "-l"])
+            output = result.output.strip()
             if output == "List of devices attached":
                 sleep(0.5)
                 continue
@@ -113,22 +113,22 @@ class ADB(CMD):
         return devices
 
     def connect(self, host: str, port: int):
-        output, _ = self.run_cmd(["connect", f"{host}:{port}"])
-        return "Connection refused" not in output
+        result = self.run_cmd(["connect", f"{host}:{port}"])
+        return result.contain("Connection refused")
+        # return "Connection refused" not in output
 
     def kill_server(self):
         self.run_cmd(["kill-server"])
 
     def start_server(self):
-        output, error = self.run_cmd(["start-server"])
-        if "daemon started successfully" in error:
-            logger.debug("adb-server start success")
-        else:
+        result = self.run_cmd(["start-server"])
+        if not result.contain("daemon started successfully"):
             logger.error("=" * 80)
-            logger.error("output:\n" + output)
-            logger.error("error:\n" + error, stack_info=True)
+            logger.error("output:\n" + result.output)
+            logger.error("error:\n" + result.error, stack_info=True)
             logger.error("=" * 80)
             sleep(1)
+            self.kill_server()
             self.start_server()
 
         sleep(3)  # 等待3秒，等待模拟器启动
@@ -152,28 +152,28 @@ class FastBoot(CMD):
     def help(self):
         # NOTE -h 命令不支持 shell
         assert self.bin_path is not None
-        result, _ = self._run([self.bin_path, "-h"])
-        logger.debug(result)
+        result = self._run([self.bin_path, "-h"])
+        print(result.output)
 
     def devices(self, flag=False):
         """List devices in bootloader"""
         _cmd = [self.bin_path, "devices"]
         if flag:
             _cmd.append("-l")
-        result, _ = self._run(_cmd)
+        result = self._run(_cmd)
         logger.debug(result)
 
     def getvar(self, key="all"):
         """获取设备和分区信息"""
         _cmd = [self.bin_path, "getvar", key]
-        result, _ = self._run(_cmd)
+        result = self._run(_cmd)
         logger.debug(result)
 
     def reboot(self, bootloader=False):
         _cmd = [self.bin_path, "reboot"]
         if bootloader:
             _cmd.append("bootloader")
-        result, _ = self._run(_cmd)
+        result = self._run(_cmd)
         logger.debug(result)
 
     def boot(self):
@@ -186,7 +186,7 @@ class FastBoot(CMD):
             self.bin_path,
             "flashing",
         ]
-        result, _ = self._run(_cmd)
+        result = self._run(_cmd)
         logger.debug(result)
 
     def unlock(self):
@@ -196,7 +196,7 @@ class FastBoot(CMD):
     def update(self, zip_path):
         """Flash all partitions from an update.zip package."""
         _cmd = [self.bin_path, "update", zip_path]
-        result, _ = self._run(_cmd)
+        result = self._run(_cmd)
         logger.debug(result)
 
     def flash(self, partition, filename):
@@ -205,7 +205,7 @@ class FastBoot(CMD):
         $ANDROID_PRODUCT_OUT if no filename is given.
         """
         _cmd = [self.bin_path, "flash", partition, filename]
-        result, _ = self._run(_cmd)
+        result = self._run(_cmd)
         logger.debug(result)
 
     def flashall(self):
@@ -215,5 +215,5 @@ class FastBoot(CMD):
         Secondary images may be flashed to inactive slot.
         """
         _cmd = [self.bin_path, "flashall"]
-        result, _ = self._run(_cmd)
+        result = self._run(_cmd)
         logger.debug(result)

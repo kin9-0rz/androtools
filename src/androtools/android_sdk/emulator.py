@@ -1,6 +1,6 @@
 import shutil
 
-from androtools.android_sdk import CMD
+from androtools.cmd import CMD
 
 
 class Emulator(CMD):
@@ -12,29 +12,29 @@ class Emulator(CMD):
         super().__init__(path)
 
     def build_tcpdump(self):
-        self.build("-tcpdump")
+        self.append_args(["-tcpdump"])
 
     def avd(self, name: str):
-        self.build_args(["-avd", name])
+        self.append_args(["-avd", name])
 
     def noskin(self):
-        self.build("-noskin")
+        self.append_args(["-noskin"])
 
     def noaudio(self):
-        self.build("-noaudio")
+        self.append_args(["-noaudio"])
 
     def no_window(self):
-        self.build("-no-window")
+        self.append_args(["-no-window"])
 
     def no_boot_anim(self):
-        self.build("-no-boot-anim")
+        self.append_args(["-no-boot-anim"])
 
     def start_avd(self, avd_name: str):
         # self._run(["@" + avd_name])
         # self._run(["-avd", avd_name])
-        self.build_args(["-avd", avd_name])
+        self.append_args(["-avd", avd_name])
         self.run_daemon()
 
     def list_avds(self):
-        self.build("-list-avds")
+        self.append_args(["-list-avds"])
         return self.run()

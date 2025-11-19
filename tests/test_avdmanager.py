@@ -16,8 +16,7 @@ def is_ok():
     ca.device("pixel_xl")
     ca.force()
 
-    output, error = ca.run()
-    print(output)
+    error = ca.run().error
     if "Error: Package path is not valid." in error:
         return False
     return True
@@ -27,8 +26,8 @@ def test_list_avd(is_ok):
     if not is_ok:
         return
     am = AVDManager()
-    result = am.list_avd()
-    assert "test" in result[0]
+    result = am.list_avd().output
+    assert "test" in result
 
 
 def test_delete_avd(is_ok):
@@ -36,8 +35,8 @@ def test_delete_avd(is_ok):
         return
 
     am = AVDManager()
-    result = am.delete_avd("test")
-    assert "deleted" in result[0]
+    result = am.delete_avd("test").output
+    assert "deleted" in result
 
-    result = am.list_avd()
-    assert "test" not in result[0]
+    result = am.list_avd().output
+    assert "test" not in result

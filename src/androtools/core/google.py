@@ -135,23 +135,22 @@ class GEmu(Device):
         return is_ok
 
     def _get_state(self):
-        output, error = self._adb.run_cmd(["get-state"])
-
-        output = "".join(output) + error
+        result = self._adb.run_cmd(["get-state"])
 
         # 设备丢失，需要等待，或者重启 adb
-        if "not found" in error:
+        # if "not found" in error:
+        if result.contain("not found"):
             return G_STATE.NOFOUND
 
-        if "device" in output:
+        if result.contain("device"):
             return G_STATE.DEVICE
 
         # 设备无法控制
-        if "offline" in output:
+        if result.contain("offline"):
             return G_STATE.OFFLINE
 
         # 设备可以重启
-        if "bootloader" in output:
+        if result.contain("bootloader"):
             return G_STATE.BOOTLOADER
 
         return G_STATE.UNKNOWN
@@ -180,7 +179,7 @@ class GEmu(Device):
         return self._adb.run_cmd(cmd)
 
     def _init_sdk(self):
-        output, _ = self.adb_shell(["getprop", "ro.build.version.sdk"])
+        output = self.adb_shell(["getprop", "ro.build.version.sdk"]).output
         if isinstance(output, str):
             self.sdk = int(output)
         elif isinstance(output, list):
@@ -200,10 +199,9 @@ class GEmu(Device):
         if transport != TRANSPORT.ANY:
             cmd += f"-{transport.value}"
         cmd += f"-{state}"
-        output, error = self.adb([cmd])
-        return output, error
+        return self.adb([cmd])
 
     def is_boot_completed(self) -> bool:
         """判断设备是否处于开机状态"""
-        output, _ = self.adb_shell(["getprop", "sys.boot_completed"])
+        output = self.adb_shell(["getprop", "sys.boot_completed"]).output
         return "1" in output

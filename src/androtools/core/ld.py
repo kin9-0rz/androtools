@@ -4,7 +4,8 @@ from time import sleep
 
 import psutil
 
-from androtools.android_sdk import CMD
+from androtools.cmd import CMD
+from androtools.cmd.result import CmdResult
 from androtools.core.device import Device, DeviceInfo
 from androtools import logger
 
@@ -32,11 +33,11 @@ class LDConsole(CMD):
         Returns:
             _type_: _description_
         """
-        return self._run(["list2"])
+        return self._run(["list2"]).output
 
     def get_pid(self, idx: int):
-        r, _ = self.list_devices()
-        lines = r.splitlines()
+        output = self.list_devices()
+        lines = output.splitlines()
         line = lines[idx]
         parts = line.split(",")
         return parts[6]
@@ -45,15 +46,15 @@ class LDConsole(CMD):
         return self._run(["launch", "--index", str(idx)])
 
     def is_running(self, idx: int | str):
-        r, _ = self._run(["isrunning", "--index", str(idx)])
+        r = self._run(["isrunning", "--index", str(idx)]).output
         return r == "running"
 
     def getprop(self, idx: int | str, prop: str | None = None) -> str:
         if prop:
-            out, _ = self._run(["getprop", "--index", str(idx), "--key", prop])
+            out = self._run(["getprop", "--index", str(idx), "--key", prop]).output
         else:
-            out, _ = self._run(["getprop", "--index", str(idx)])
-        return out.strip()
+            out = self._run(["getprop", "--index", str(idx)]).output
+        return out
 
     # setprop <--name mnq_name | --index mnq_idx> --key <name> --value <val>
     def setprop(self, idx: int | str, prop: str, val: str):
@@ -152,25 +153,27 @@ class LDPlayer(Device):
         self.adb_shell(["am", "start", "com.android.settings"])
         sleep(3)
         # dumpsys window windows | grep mCurrentFocus
-        out, _ = self.adb_shell(
+        result = self.adb_shell(
             ["dumpsys", "window", "windows", "|", "grep", "mCurrentFocus"]
         )
-        if "com.android.settings" not in out:
+
+        # if "com.android.settings" not in out:
+        if result.output_contain("com.android.settings"):
             logger.warning(f"[{self.name}] 无法启动设置，杀死系统界面，重新启动设置。")
             self.kill_app("com.android.launcher3")
             self.adb_shell(["am", "start", "com.android.settings"])
-            out, _ = self.adb_shell(
+            out = self.adb_shell(
                 ["dumpsys", "window", "windows", "|", "grep", "mCurrentFocus"]
-            )
+            ).output
             if "com.android.settings" not in out:
                 logger.warning(f"[{self.name}] 无法启动设置，可能需要重启模拟器。")
                 return True
 
         self.home()
-        out, _ = self.adb_shell(
+        result = self.adb_shell(
             ["dumpsys", "window", "windows", "|", "grep", "mCurrentFocus"]
         )
-        if "com.android.launcher3" not in out:
+        if result.output_contain("com.android.launcher3"):
             logger.warning(f"[{self.name}] 回到桌面失败，请检查模拟器是否正常启动。")
             return True
         return False
@@ -185,10 +188,10 @@ class LDPlayer(Device):
 
     def install_app_by_console(self, apk_path: str):
         r = self.ldconsole.install_app(self.index, apk_path)
-        return True, str(r[0] + r[1])
+        return r
 
-    def uninstall_app_by_console(self, package_name: str):
-        self.ldconsole.uninstall_app(self.index, package_name)
+    def uninstall_app_by_console(self, package_name: str) -> CmdResult:
+        return self.ldconsole.uninstall_app(self.index, package_name)
 
     def run_app(self, package):
         self.ldconsole.run_app(self.index, package)

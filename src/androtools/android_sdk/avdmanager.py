@@ -1,6 +1,6 @@
 import shutil
 
-from androtools.android_sdk import CMD
+from androtools.cmd import CMD
 
 
 class AVDInfo:
@@ -33,25 +33,25 @@ class CreateAVD(CMD):
         self._args = ["create", "avd"]
 
     def force(self):
-        self.build("--force")
+        self.append_args(["--force"])
 
     def name(self, name):
-        self.build_args(["--name", name])
+        self.append_args(["--name", name])
 
     def device(self, device):
-        self.build_args(["--device", device])
+        self.append_args(["--device", device])
 
     def abi(self, abi):
-        self.build_args(["--abi", abi])
+        self.append_args(["--abi", abi])
 
     def package(self, package):
-        self.build_args(["--package", package])
+        self.append_args(["--package", package])
 
     def path(self, path):
-        self.build_args(["--path", path])
+        self.append_args(["--path", path])
 
     def snapshot(self, snapshot):
-        self.build_args(["--snapshot", snapshot])
+        self.append_args(["--snapshot", snapshot])
 
     def sdcard(self, sdcard):
-        self.build_args(["--sdcard", sdcard])
+        self.append_args(["--sdcard", sdcard])

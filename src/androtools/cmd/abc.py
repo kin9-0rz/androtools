@@ -6,6 +6,7 @@ from enum import Enum
 from func_timeout import FunctionTimedOut, func_timeout
 
 from androtools import logger
+from androtools.cmd.result import CmdResult
 
 
 class SubSubCommand(Enum):
@@ -15,23 +16,30 @@ class SubSubCommand(Enum):
 
 
 class CMD:
+    """命令定义"""
+
     def __init__(self, path: str) -> None:
         assert isinstance(path, str)
         self.bin_path = path if os.path.exists(path) else shutil.which(path)
         self._args: list[str] = []
+        self._current_cmd_line = ""
 
     def reset(self):
+        """参数重置"""
         self._args.clear()
 
-    def _build_cmds(self, cmd: list[str]) -> list:
+    def _build_cmd_line(self, cmd: list[str]) -> list:
+        """将命令和参数组合成一个命令行"""
         assert isinstance(cmd, list)
         return [self.bin_path] + cmd
 
-    def build(self, arg: str):
-        self._args.append(arg)
-        return self
-
-    def build_args(self, args: list[str]):
+    def append_args(self, args: list[str]):
+        """添加参数，可以一个一个添加，也可以一次性添加。
+        -a
+        -b arg1
+        -c arg2 arg3
+        -a -b arg1 -c arg2 arg3
+        """
         self._args += args
         return self
 
@@ -52,17 +60,17 @@ class CMD:
         shell: bool = False,
         encoding: str | None = None,
         timeout: int | None = None,
-    ):
+    ) -> CmdResult:
         """运行阻塞命令，等待结果。"""
         assert isinstance(cmd, list)
         for item in cmd:
             assert isinstance(item, str)
-        args = self._build_cmds(cmd)
-        logger.debug(" ".join(args))
+        cmd_line = self._build_cmd_line(cmd)
+        logger.debug(" ".join(cmd_line))
 
         try:
             r = subprocess.run(
-                args,
+                cmd_line,
                 shell=shell,  # 例如使用通配符、管道或重定向时，须使用shell
                 encoding=encoding,
                 errors="ignore",
@@ -70,13 +78,13 @@ class CMD:
                 text=True,
                 timeout=timeout,
             )
-            return r.stdout.strip(), r.stderr.strip()
+            return CmdResult(r.stdout, r.stderr)
         except Exception as e:
-            return "", f"error: {e}"
+            return CmdResult("", str(e))
 
     def _run_daemon(self, args: list[str]):
         """运行后台命令，直接运行命令，不需要获取结果。"""
-        cmd_list = self._build_cmds(args)
+        cmd_list = self._build_cmd_line(args)
         logger.debug(" ".join(cmd_list))
         try:
             proc = subprocess.Popen(

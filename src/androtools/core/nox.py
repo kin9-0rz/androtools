@@ -4,6 +4,7 @@ from time import sleep
 
 import psutil
 
+from androtools.cmd.result import CmdResult
 from androtools.core.device import Device, DeviceConsole, DeviceInfo
 
 
@@ -42,8 +43,8 @@ class NoxConsole(DeviceConsole):
         Returns:
             _type_: _description_
         """
-        r, _ = self._run(["list"])
-        return r
+        r = self._run(["list"])
+        return r.output
 
     # setprop <-name:nox_name | -index:nox_index> -key:<name> -value:<val>
     def setprop(self, idx: int | str, key: str, value: str):
@@ -53,19 +54,17 @@ class NoxConsole(DeviceConsole):
     def getprop(self, idx: int | str, key: str | None):
         if key is None:
             key = ""
-        r, _ = self._run(["getprop", f"-index:{idx}", f"-key:{key}"])
-        return r.strip()
+        r = self._run(["getprop", f"-index:{idx}", f"-key:{key}"])
+        return r.output
 
     # installapp <-name:nox_name | -index:nox_index> -filename:<apk_file_name>
     def install_app(self, idx: int | str, apk: str):
-        r1, r2 = self._run(["installapp", f"-index:{idx}", f"-filename:{apk}"])
-        sleep(3)
-        return True, r1.strip() + " | " + r2.strip()
+        """什么时候安装成功是不知道的"""
+        return self._run(["installapp", f"-index:{idx}", f"-filename:{apk}"])
 
     # uninstallapp <-name:nox_name | -index:nox_index> -packagename:<apk_package_name>
     def uninstall_app(self, idx: int | str, package: str):
-        self._run(["uninstallapp", f"-index:{idx}", f"-packagename:{package}"])
-        sleep(3)
+        return self._run(["uninstallapp", f"-index:{idx}", f"-packagename:{package}"])
 
     # runapp <-name:nox_name | -index:nox_index> -packagename:<apk_package_name>
     def run_app(self, idx: int | str, package: str):
@@ -160,12 +159,12 @@ class NoxPlayer(Device):
         self.nox_console.reboot_device(self.index)
         return self.get_status()
 
-    def install_app(self, apk_path: str):
+    def install_app_by_console(self, apk_path: str) -> CmdResult:
         # NOTE 默认无运行时权限，需要手动授权
         return self.nox_console.install_app(self.index, apk_path)
 
-    def uninstall_app(self, package_name: str):
-        self.nox_console.uninstall_app(self.index, package_name)
+    def uninstall_app_by_console(self, package_name: str) -> CmdResult:
+        return self.nox_console.uninstall_app(self.index, package_name)
 
     def run_app(self, package: str) -> bool:
         return self.nox_console.run_app(self.index, package)
@@ -173,10 +172,10 @@ class NoxPlayer(Device):
     def kill_app(self, package: str):
         self.nox_console.kill_app(self.index, package)
 
-    def adb(self, cmd: list):
+    def adb_by_console(self, cmd: list):
         return self.nox_console.adb(self.index, cmd)
 
-    def adb_shell(self, cmd: list):
+    def adb_shell_by_console(self, cmd: list):
         return self.nox_console.adb_shell(self.index, cmd)
 
     def getprop(self, prop: str | None = None):
@@ -199,8 +198,8 @@ class NoxPlayer(Device):
 
         while True:
             serial = None
-            out, _ = self._adb_wrapper.run_cmd(["devices", "-l"])
-            for line in out.strip().split("\n"):
+            result = self._adb_wrapper.run_cmd(["devices", "-l"])
+            for line in result.output.split("\n"):
                 if "daemon not running" in line:
                     break
 

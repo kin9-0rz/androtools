@@ -1,7 +1,7 @@
 import shutil
 
-from androtools.android_sdk import CMD
-from androtools.android_sdk.abc import SubSubCommand
+from androtools.cmd import CMD
+from androtools.cmd.abc import SubSubCommand
 
 
 class AAPT:

@@ -8,6 +8,6 @@ def emu() -> Emulator:
 
 
 def test_list_avds(emu: Emulator):
-    out, err = emu.list_avds()
-    assert len(out) > 0
-    assert err == ""
+    result = emu.list_avds()
+    assert len(result.output) > 0
+    assert result.error == ""

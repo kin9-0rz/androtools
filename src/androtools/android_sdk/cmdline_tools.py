@@ -6,7 +6,7 @@
 #     - monkeyrunner
 import shutil
 
-from androtools.android_sdk import CMD
+from androtools.cmd import CMD
 
 
 class SDKManager(CMD):

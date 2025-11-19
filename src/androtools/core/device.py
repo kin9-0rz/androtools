@@ -9,8 +9,9 @@ import subprocess
 from func_timeout import FunctionTimedOut, func_timeout
 from androtools import logger
 
-from androtools.android_sdk import CMD
+from androtools.cmd import CMD
 from androtools.android_sdk.platform_tools import ADB
+from androtools.cmd.result import CmdResult
 from androtools.core.constants import Android_API_MAP, KeyEvent
 
 
@@ -92,18 +93,22 @@ class WorkStatus(Enum):
 class DeviceConsole(CMD):
     """模拟器控制台，用于控制模拟器的启动和关闭。"""
 
+    @abstractmethod
     def launch_device(self, idx: int | str):
         """启动模拟器"""
         pass
 
+    @abstractmethod
     def reboot_device(self, idx: int | str):
         """重启模拟器"""
         pass
 
+    @abstractmethod
     def quit_device(self, idx: int | str):
         """关闭模拟器"""
         pass
 
+    @abstractmethod
     def quit_all_devices(self):
         """关闭所有的模拟器"""
         pass
@@ -224,6 +229,7 @@ class Device(ABC):
     # 获取此时此刻模拟器的状态
     def get_status(self):
         status = DeviceStatus.STOP
+
         if self.is_boot():
             status = DeviceStatus.BOOT
         else:
@@ -234,13 +240,17 @@ class Device(ABC):
         self.reconnect()
         self.reconnect()
 
-        # 如果设备还没启动，就会这样子
         # adb.exe -s emulator-5556 get-state
-        # error: device 'emulator-5556' not found
-        out, err = self.adb(["get-state"])
-        if "device" in out:
+        result = self.adb(["get-state"])
+        if result.contain("not found"):
+            # error: device 'emulator-5556' not found
+            # NOTE: 这种情况几乎不可能存在
+            status = DeviceStatus.STOP
+            return status
+
+        if result.output_equal("device"):
             status = DeviceStatus.DEVICE
-        elif "offline" in err:
+        elif result.error_contain("offline"):
             status = DeviceStatus.OFFLINE
             logger.debug(f"设备 [{self.name}] 状态: {status}")
             return status
@@ -264,11 +274,11 @@ class Device(ABC):
         """重启模拟器"""
         pass
 
-    def adb(self, cmd: list) -> tuple[str, str]:
+    def adb(self, cmd: list) -> CmdResult:
         """执行 adb 命令"""
         return self._adb_wrapper.run_cmd(cmd, self.info.serial)
 
-    def adb_shell(self, cmd: list[str]) -> tuple[str, str]:
+    def adb_shell(self, cmd: list[str]) -> CmdResult:
         """执行 adb shell 命令"""
         assert cmd is not None
         assert isinstance(cmd, list)
@@ -284,11 +294,11 @@ class Device(ABC):
     def getprop(self, prop: str | None = None) -> str:
         """获取模拟器属性"""
         if prop:
-            output, _ = self.adb_shell(["getprop", prop])
+            result = self.adb_shell(["getprop", prop])
         else:
-            output, _ = self.adb(["getprop"])
+            result = self.adb(["getprop"])
 
-        return output.strip()
+        return result.output
 
     def get_sdk(self):
         sdk = -1
@@ -302,6 +312,10 @@ class Device(ABC):
             sdk = int(output[0])
 
         return sdk
+
+    @abstractmethod
+    def install_app_by_console(self, apk_path: str) -> CmdResult:
+        pass
 
     def install_app(self, apk_path: str):
         """安装apk
@@ -318,31 +332,29 @@ class Device(ABC):
         cmd = ["install", "-r", "-g", "-t", apk_path]
         if self.sdk < 25:
             cmd = ["install", "-r", "-t", apk_path]
-        output, errout = self.adb(cmd)
+        result = self.adb(cmd)
 
-        if "error" in output:
-            logger.error(" ".join(cmd))
-            logger.error(output)
-            return False, output
+        if "Success" in result.output:
+            return True, result
 
-        return "Success" in errout, output + " | " + errout.strip()
+        return False, result
+
+    @abstractmethod
+    def uninstall_app_by_console(self, package_name: str) -> CmdResult:
+        pass
 
     def uninstall_app(self, package_name: str):
         """卸载应用"""
         cmd = ["uninstall", package_name]
-        output, error = self.adb(cmd)
-        if "Success" in output:
-            return True
-        logger.error(" ".join(cmd))
-        logger.error(output)
-        logger.error(error, stack_info=True)
+        result = self.adb(cmd)
+        return result.contain("Success")
 
     def grant_permission(self, package_name: str, permission: str):
         self.adb_shell(["pm", "grant", package_name, permission])
 
     def grant_all_permissions(self, package_name: str):
         r = self.adb_shell(["pm", "dump", package_name, "|", "grep", "granted=false"])
-        for line in r[0].split("\n"):
+        for line in r.output.split("\n"):
             line = line.strip()
             if line == "":
                 continue
@@ -360,8 +372,8 @@ class Device(ABC):
         Returns:
             bool: 如果返回True，表示存在主界面；如果返回False，表示不存在主界面
         """
-        out, _ = self.adb_shell(["dumpsys", "package", package])
-        out = out.strip()
+        result = self.adb_shell(["dumpsys", "package", package])
+        out = result.output
 
         activity_start = out.find("android.intent.action.MAIN:")
         if activity_start == -1:
@@ -389,14 +401,12 @@ class Device(ABC):
     def pull(self, remote: str, local: str):
         """将文件从模拟器下载到本地"""
         cmd = ["pull", remote, local]
-        output, error = self.adb(cmd)
-        if "pulled" in output:
+        result = self.adb(cmd)
+        # if "pulled" in output:
+        if result.contain("pulled"):
             return True
         logger.error(" ".join(cmd))
-        if output:
-            logger.error(output)
-        if error:
-            logger.error(error)
+        logger.error(result)
 
     def push(self, local: str, remote: str):
         """将文件从本地上传到模拟器"""
@@ -419,34 +429,33 @@ class Device(ABC):
 
     def ls(self, path: str):
         cmd = ["ls", path]
-        output, err = self.adb_shell(cmd)
-        if err is not None:
-            return err
-        return output
+        result = self.adb_shell(cmd)
+        if result.has_error():
+            return result
+        return result.output
 
     def mkdir(self, path):
         self.adb_shell(["mkdir", path])
 
     def ps(self):
-        output, _ = self.adb_shell(["ps", "-A"])
-        return output
+        return self.adb_shell(["ps", "-A"]).output
 
     def pidof(self, process_name):
-        output, _ = self.adb_shell(["pidof", process_name])
-        output = output.strip()
-        if "pidof: not found" in output:
-            output, _ = self.adb_shell(["ps"])
-            lines = output.splitlines()
+        result = self.adb_shell(["pidof", process_name])
+        if result.contain("not found"):
+            lines = self.adb_shell(["ps"]).output.splitlines()
             for line in lines:
                 parts = line.split()
                 if parts[-1] == process_name:
                     return int(parts[1])
-            return
-        return None if output == "" else int(output)
+            return -1
+
+        if result.output == "":
+            return -1
+        return int(result.output)
 
     def killall(self, process_name):
-        output, _ = self.adb_shell(["killall", process_name])
-        return output
+        return self.adb_shell(["killall", process_name]).output
 
     def kill(self, pid):
         cmd = ["kill", str(pid)]
@@ -454,8 +463,7 @@ class Device(ABC):
 
     def dumpsys_window_windows(self):
         cmd = ["dumpsys", "window", "windows"]
-        output, _ = self.adb_shell(cmd)
-        return output
+        return self.adb_shell(cmd).output
 
     def tap(self, x: int, y: int):
         cmd = ["input", "tap", str(x), str(y)]
@@ -504,8 +512,8 @@ class Device(ABC):
             cmd.append("-3")
         elif flag == 1:
             cmd.append("-s")
-        output, _ = self.adb_shell(cmd)
-        return output.strip().replace("package:", "").split()
+        output = self.adb_shell(cmd).output
+        return output.replace("package:", "").split()
 
     def screencap(self, save_dir: str, filename: str):
         """截图，并保存到指定目录

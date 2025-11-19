@@ -17,9 +17,10 @@ def apk_path():
 
 
 def test_dump(aapt2: AAPT2, apk_path):
-    output, error = aapt2.run_subcmd(
+    result = aapt2.run_subcmd(
         Dump.permissions,
         [apk_path],
     )
-    assert "android.permission.INTERNET" in output
-    assert error == ""
+    assert "android.permission.INTERNET" in result.output
+    assert result.error == ""
+    assert not result.has_error()
