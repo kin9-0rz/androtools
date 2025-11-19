@@ -75,7 +75,6 @@ class DeviceStatus(Enum):
     """
     ERORR = "4"  # 模拟器执行 adb 命令没响应，则为错误，需要重启模拟器
     UNKNOWN = "5"  # 未知
-    RUNNING = "6"  # 设备正在运行
 
     @staticmethod
     def get(value: str):
@@ -211,7 +210,7 @@ class Device(ABC):
                 counter += 1
                 status = self.get_status()
                 if status == DeviceStatus.BOOT_COMPLETED:
-                    self.status = DeviceStatus.RUNNING
+                    self.status = status
                     break
                 time.sleep(6)
 
@@ -237,8 +236,7 @@ class Device(ABC):
 
         # 刷新模拟器的状态
         self.reconnect()
-        self.reconnect()
-        self.reconnect()
+        time.sleep(3)
 
         # adb.exe -s emulator-5556 get-state
         result = self.adb(["get-state"])
