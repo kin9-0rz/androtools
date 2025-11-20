@@ -122,17 +122,20 @@ class LDPlayer(Device):
         self.index = info.index
         self.name = info.name
         self.ldconsole = LDConsole(info.console_path)
+        self.pid = self.get_pid()
 
     def get_pid(self) -> int:
         pid = self.ldconsole.get_pid(int(self.index))
         return int(pid)
 
+    def init_pid(self):
+        self.pid = self.get_pid()
+
     def get_memory_rss(self):
         """获取常驻内存大小字节"""
-        pid = self.get_pid()
-        if pid == -1:
+        if self.pid == -1:
             return
-        proc = psutil.Process(pid)
+        proc = psutil.Process(self.pid)
         mem_info = proc.memory_info()
         return mem_info.rss
 
@@ -182,6 +185,8 @@ class LDPlayer(Device):
         if self.is_boot():
             return
         self.ldconsole.launch_device(self.info.index)
+        sleep(5)
+        self.init_pid()
 
     def getprop(self, prop: str | None = None):
         return self.ldconsole.getprop(self.index, prop)
@@ -202,7 +207,8 @@ class LDPlayer(Device):
 
     def reboot(self):
         self.ldconsole.reboot_device(self.index)
-        return self.get_status()
+        sleep(5)
+        self.init_pid()
 
     def adb_by_console(self, cmd: str | list, encoding: str | None = None):
         if isinstance(cmd, list):

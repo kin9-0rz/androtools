@@ -268,7 +268,7 @@ class Device(ABC):
         pass
 
     @abstractmethod
-    def reboot(self) -> DeviceStatus:
+    def reboot(self):
         """重启模拟器"""
         pass
 
