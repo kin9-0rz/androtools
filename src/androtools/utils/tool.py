@@ -31,7 +31,7 @@ class Iptables:
 
     def add(self, package_name: str) -> str:
         # dumpsys package $2 | grep userId | sed "s/[ \t]*userId=//g"
-        r, _ = self.device.adb_shell(["dumpsys", "package", package_name])
+        r = self.device.adb_shell(["dumpsys", "package", package_name]).output
         user_id = r.split("userId=")[1].split("\n")[0]
 
         # iptables -A OUTPUT -m owner --uid-owner $2 -j CONNMARK --set-mark 1
