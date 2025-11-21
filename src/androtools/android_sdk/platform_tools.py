@@ -45,18 +45,20 @@ class ADB(CMD):
         cmd = ["su", "0"] + cmd
         return cmd
 
-    def run_cmd(self, cmd: list[str], serial: str | None = None, timeout: int = 6):
-        """执行 adb 命令, 默认6s超时，一个命令执行了6s必然卡死了"""
+    def run_cmd(self, cmd: list[str], serial: str | None = None, timeout: int = 30):
+        """执行 adb 命令"""
         assert isinstance(cmd, list)
         if serial is not None:
             cmd = ["-s", serial] + cmd
         return self._run(cmd, timeout=timeout)
 
-    def run_shell_cmd(self, cmd: list[str], serial: str | None = None):
+    def run_shell_cmd(
+        self, cmd: list[str], serial: str | None = None, timeout: int = 30
+    ):
         """执行 adb shell 命令"""
         assert isinstance(cmd, list)
         cmd = ["shell"] + cmd
-        result = self.run_cmd(cmd, serial)
+        result = self.run_cmd(cmd, serial, timeout)
         if result.contain("offline"):
             raise DeviceOfflineError("设备已断开")
         return result

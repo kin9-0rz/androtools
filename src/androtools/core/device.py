@@ -263,8 +263,9 @@ class Device(ABC):
         if result.output_equal("device"):
             status = DeviceStatus.DEVICE
             try:
-                # NOTE: 超时
-                self.home()
+                # TODO: 可以尝试使用 am 相关命令做测试
+                self.adb_shell(["ps"])
+                self.input_keyevent(KeyEvent.KEYCODE_ALT_LEFT)
             except Exception:
                 status = DeviceStatus.ERORR
                 return status
@@ -279,15 +280,15 @@ class Device(ABC):
         logger.debug(f"设备 [{self.name}] 状态: {status}")
         return status
 
-    def adb(self, cmd: list) -> CmdResult:
+    def adb(self, cmd: list, timeout: int = 30) -> CmdResult:
         """执行 adb 命令"""
-        return self._adb_wrapper.run_cmd(cmd, self.info.serial)
+        return self._adb_wrapper.run_cmd(cmd, self.info.serial, timeout)
 
-    def adb_shell(self, cmd: list[str]) -> CmdResult:
+    def adb_shell(self, cmd: list[str], timeout: int = 30) -> CmdResult:
         """执行 adb shell 命令"""
         assert cmd is not None
         assert isinstance(cmd, list)
-        return self._adb_wrapper.run_shell_cmd(cmd, self.info.serial)
+        return self._adb_wrapper.run_shell_cmd(cmd, self.info.serial, timeout)
 
     def adb_shell_daemon(self, cmd: list[str]):
         assert cmd is not None
@@ -337,7 +338,8 @@ class Device(ABC):
         cmd = ["install", "-r", "-g", "-t", apk_path]
         if self.sdk < 25:
             cmd = ["install", "-r", "-t", apk_path]
-        result = self.adb(cmd)
+        # NOTE: 安装应用最多1分钟算超时
+        result = self.adb(cmd, 60)
 
         if "Success" in result.output:
             return True, result
@@ -485,7 +487,8 @@ class Device(ABC):
 
     def input_keyevent(self, keyevent: KeyEvent):
         cmd = ["input", "keyevent", str(keyevent.value)]
-        self.adb_shell(cmd)
+        # 输入事件5s必定超时
+        self.adb_shell(cmd, 5)
 
     def input_text(self, txt: str):
         cmd = ["input", "text", txt]
@@ -501,7 +504,7 @@ class Device(ABC):
         self.input_keyevent(KeyEvent.KEYCODE_DEL)
 
     # ---------------------------------------------------------------------------- #
-    #                             截图、dump等Android相关的命令                       #
+    #                             截图、dump等Android相关的命令                    #
     # ---------------------------------------------------------------------------- #
     def list_packages(self, flag: Literal[-1, 0, 1] = -1) -> list[str]:
         """列出设备的应用列表
