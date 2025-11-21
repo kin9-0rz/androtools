@@ -80,7 +80,7 @@ class CMD:
             )
             return CmdResult(r.stdout, r.stderr)
         except Exception as e:
-            return CmdResult("", str(e))
+            raise e
 
     def _run_daemon(self, args: list[str]):
         """运行后台命令，直接运行命令，不需要获取结果。"""

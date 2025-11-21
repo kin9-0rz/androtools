@@ -73,15 +73,14 @@ class DeviceStatus(Enum):
     1、启动过程中，等待启动完毕。<br>
     2、启动完毕，adb 无法操作，只能重启。
     """
-    ERORR = "4"  # 模拟器执行 adb 命令没响应，则为错误，需要重启模拟器
-    UNKNOWN = "5"  # 未知
+    ERORR = "4"  # 异常状态，设备已经启动，但是，无法交互等等。只能重新启动
 
     @staticmethod
     def get(value: str):
         for item in DeviceStatus:
             if item.value == value:
                 return item
-        return DeviceStatus.UNKNOWN
+        raise Exception("未知状态")
 
 
 class WorkStatus(Enum):
@@ -185,10 +184,25 @@ class Device(ABC):
             return True
         return False
 
+    @abstractmethod
+    def launch(self):
+        """启动模拟器"""
+        pass
+
+    @abstractmethod
+    def close(self):
+        """关闭模拟器"""
+        pass
+
+    @abstractmethod
+    def reboot(self):
+        """重启模拟器"""
+        pass
+
+    # FIXME: 如何判断设备完全启动
     def launch_and_wait_for_device(self):
         """设备第一次，必须要确认是否已经启动
         1. 判断设备是否已经启动，如果没有启动，则启动设备。
-
         """
         status = self.get_status()
         if status == DeviceStatus.BOOT_COMPLETED:
@@ -219,6 +233,9 @@ class Device(ABC):
                     logger.warning(f"设备 {self.name} 启动超时, 建议重新启动")
                     self.close()
                     self.status = DeviceStatus.STOP
+                    # FIXME 启动失败的情况，则是无限重启？
+                    # NOTE: 批量管理的情况，adb devices 不断刷新，一旦检测到offline，则进行重启操作。
+                    # self.launch_and_wait_for_device()
                     return False
         return True
 
@@ -228,7 +245,6 @@ class Device(ABC):
     # 获取此时此刻模拟器的状态
     def get_status(self):
         status = DeviceStatus.STOP
-
         if self.is_boot():
             status = DeviceStatus.BOOT
         else:
@@ -238,16 +254,20 @@ class Device(ABC):
         self.reconnect()
         time.sleep(3)
 
-        # adb.exe -s emulator-5556 get-state
         result = self.adb(["get-state"])
         if result.contain("not found"):
             # error: device 'emulator-5556' not found
-            # NOTE: 这种情况几乎不可能存在
-            status = DeviceStatus.STOP
+            status = DeviceStatus.ERORR
             return status
 
         if result.output_equal("device"):
             status = DeviceStatus.DEVICE
+            try:
+                # NOTE: 超时
+                self.home()
+            except Exception:
+                status = DeviceStatus.ERORR
+                return status
         elif result.error_contain("offline"):
             status = DeviceStatus.OFFLINE
             logger.debug(f"设备 [{self.name}] 状态: {status}")
@@ -258,19 +278,6 @@ class Device(ABC):
 
         logger.debug(f"设备 [{self.name}] 状态: {status}")
         return status
-
-    def launch(self):
-        """启动模拟器"""
-        pass
-
-    def close(self):
-        """关闭模拟器"""
-        pass
-
-    @abstractmethod
-    def reboot(self):
-        """重启模拟器"""
-        pass
 
     def adb(self, cmd: list) -> CmdResult:
         """执行 adb 命令"""

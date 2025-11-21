@@ -45,8 +45,8 @@ class ADB(CMD):
         cmd = ["su", "0"] + cmd
         return cmd
 
-    def run_cmd(self, cmd: list[str], serial: str | None = None, timeout: int = 60):
-        """执行 adb 命令, 默认60s超时"""
+    def run_cmd(self, cmd: list[str], serial: str | None = None, timeout: int = 6):
+        """执行 adb 命令, 默认6s超时，一个命令执行了6s必然卡死了"""
         assert isinstance(cmd, list)
         if serial is not None:
             cmd = ["-s", serial] + cmd
