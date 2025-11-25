@@ -257,17 +257,24 @@ class Device(ABC):
         self.reconnect()
         time.sleep(3)
 
+        self.adb(["get-state"])
         result = self.adb(["get-state"])
         if result.contain("not found"):
+            # NOTE: adb 执行的速度太快可能会导致 not found
             # error: device 'emulator-5556' not found
-            status = DeviceStatus.ERORR
-            return status
+            # 再次确认
+            self.reconnect()
+            time.sleep(5)
+            result = self.adb(["get-state"])
+            if result.contain("not found"):
+                status = DeviceStatus.ERORR
+                return status
 
         if result.output_equal("device"):
             status = DeviceStatus.DEVICE
             try:
                 # TODO: 可以尝试使用 am 相关命令做测试
-                self.adb_shell(["ps"])
+                # self.adb_shell(["ps"])
                 self.input_keyevent(KeyEvent.KEYCODE_ALT_LEFT)
             except Exception:
                 status = DeviceStatus.ERORR

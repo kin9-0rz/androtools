@@ -66,7 +66,7 @@ class CMD:
         for item in cmd:
             assert isinstance(item, str)
         cmd_line = self._build_cmd_line(cmd)
-        logger.debug(" ".join(cmd_line))
+        logger.debug("[CMD]" + " ".join(cmd_line))
 
         try:
             r = subprocess.run(
@@ -78,6 +78,8 @@ class CMD:
                 text=True,
                 timeout=timeout,
             )
+            cr = CmdResult(r.stdout, r.stderr)
+            logger.debug("Result:\n" + str(cr))
             return CmdResult(r.stdout, r.stderr)
         except Exception as e:
             raise e

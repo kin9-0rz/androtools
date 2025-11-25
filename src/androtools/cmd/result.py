@@ -10,6 +10,9 @@ class CmdResult:
         self.output = self.output.strip()
         self.error = self.error.strip()
 
+    def __str__(self) -> str:
+        return f"{'-' * 40 + ' Output ' + '-' * 40}\n{self.output}\n{'-' * 40 + ' Error ' + '-' * 40}\n{self.error}"
+
     def contain(self, txt: str) -> bool:
         return txt in self.output or txt in self.error
 
