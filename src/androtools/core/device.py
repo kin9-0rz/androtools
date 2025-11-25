@@ -152,9 +152,10 @@ class Device(ABC):
     def __str__(self) -> str:
         return f"{self.info.name}-{self.android_version}"
 
-    @abstractmethod
     def is_boot(self) -> bool:
         """判断设备是否已经启动"""
+        # 如果已经有进程ID，则表示已经启动
+        return self.pid != -1
 
     def is_boot_completed(self) -> bool:
         r = self.getprop("sys.boot_completed")
@@ -187,6 +188,7 @@ class Device(ABC):
     @abstractmethod
     def launch(self):
         """启动模拟器"""
+        # NOTE: 必须设置 pid
         pass
 
     @abstractmethod
@@ -199,44 +201,45 @@ class Device(ABC):
         """重启模拟器"""
         pass
 
-    # FIXME: 如何判断设备完全启动
     def launch_and_wait_for_device(self):
         """设备第一次，必须要确认是否已经启动
         1. 判断设备是否已经启动，如果没有启动，则启动设备。
+        2. 启动后，则等待设备连接，连接成功，则尝试获取设备是否已经启动。
         """
-        status = self.get_status()
-        if status == DeviceStatus.BOOT_COMPLETED:
-            logger.debug(f"设备 {self.name} 已经启动")
-            self.status = status
-            return True
-
-        logger.debug(f"设备 {self.name} 尝试启动")
-        if self.status == DeviceStatus.STOP:
+        # NOTE: 如何还没启动，则启动设备
+        if not self.is_boot():
+            logger.debug(f"启动设备 {self.name}")
             self.launch()
+            time.sleep(30)
 
             while True:
                 time.sleep(5)
                 if self.is_boot():
                     break
 
-            counter = 0
-            while True:
-                counter += 1
-                status = self.get_status()
-                if status == DeviceStatus.BOOT_COMPLETED:
-                    self.status = status
-                    break
-                time.sleep(6)
+        # 如果已经启动则返回
+        status = self.get_status()
+        if status == DeviceStatus.BOOT_COMPLETED:
+            logger.debug(f"设备 {self.name} 已经启动")
+            self.status = status
+            return True
 
-                # NOTE: 1分钟
-                if counter > 10:
-                    logger.warning(f"设备 {self.name} 启动超时, 建议重新启动")
-                    self.close()
-                    self.status = DeviceStatus.STOP
-                    # FIXME 启动失败的情况，则是无限重启？
-                    # NOTE: 批量管理的情况，adb devices 不断刷新，一旦检测到offline，则进行重启操作。
-                    # self.launch_and_wait_for_device()
-                    return False
+        counter = 0
+        while True:
+            counter += 1
+            time.sleep(6)
+
+            status = self.get_status()
+            if status == DeviceStatus.BOOT_COMPLETED:
+                self.status = status
+                break
+
+            if counter > 10:
+                logger.warning(f"设备 {self.name} 启动失败！")
+                self.close()
+                self.status = DeviceStatus.STOP
+                return False
+
         return True
 
     def reconnect(self):

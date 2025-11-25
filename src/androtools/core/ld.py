@@ -142,9 +142,6 @@ class LDPlayer(Device):
     def kill_app(self, package):
         self.ldconsole.kill_app(self.index, package)
 
-    def is_boot(self):
-        return self.ldconsole.is_running(self.index)
-
     def is_crashed(self):
         """
         判断模拟器是否没响应，如果没响应，则定义为模拟器崩溃
