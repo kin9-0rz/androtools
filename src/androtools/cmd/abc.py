@@ -79,7 +79,7 @@ class CMD:
                 timeout=timeout,
             )
             cr = CmdResult(r.stdout, r.stderr)
-            logger.debug("Result:\n" + str(cr))
+            logger.debug(f"Result:\n{cr}")
             return CmdResult(r.stdout, r.stderr)
         except Exception as e:
             raise e

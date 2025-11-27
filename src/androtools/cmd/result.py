@@ -11,6 +11,12 @@ class CmdResult:
         self.error = self.error.strip()
 
     def __str__(self) -> str:
+        output = self.output
+        if len(self.output) > 1000:
+            output = self.output[:1000]
+        return f"{'-' * 40 + ' Output ' + '-' * 40}\n{output}\n{'-' * 40 + ' Error ' + '-' * 40}\n{self.error}"
+
+    def __repr__(self) -> str:
         return f"{'-' * 40 + ' Output ' + '-' * 40}\n{self.output}\n{'-' * 40 + ' Error ' + '-' * 40}\n{self.error}"
 
     def contain(self, txt: str) -> bool:
