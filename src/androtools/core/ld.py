@@ -128,17 +128,6 @@ class LDPlayer(Device):
         pid = self.ldconsole.get_pid(int(self.index))
         return int(pid)
 
-    def init_pid(self):
-        self.pid = self.get_pid()
-
-    def get_memory_rss(self):
-        """获取常驻内存大小字节"""
-        if self.pid == -1:
-            return
-        proc = psutil.Process(self.pid)
-        mem_info = proc.memory_info()
-        return mem_info.rss
-
     def kill_app(self, package):
         self.ldconsole.kill_app(self.index, package)
 

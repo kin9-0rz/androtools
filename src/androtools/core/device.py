@@ -7,6 +7,7 @@ import time
 import subprocess
 
 from func_timeout import FunctionTimedOut, func_timeout
+import psutil
 from androtools import logger
 
 from androtools.cmd import CMD
@@ -128,6 +129,21 @@ class Device(ABC):
         self.status = DeviceStatus.STOP
         self._is_busy = False
         self.pid = -1
+
+    @abstractmethod
+    def get_pid(self) -> int:
+        pass
+
+    def init_pid(self):
+        self.pid = self.get_pid()
+
+    def get_memory_rss(self):
+        """获取常驻内存大小字节"""
+        if self.pid == -1:
+            return 0
+        proc = psutil.Process(self.pid)
+        mem_info = proc.memory_info()
+        return mem_info.rss
 
     @property
     def is_busy(self) -> bool:
