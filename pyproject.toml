@@ -10,7 +10,10 @@ requires-python = ">=3.10"
 dependencies = ["func-timeout>=4.3.5", "loguru>=0.7.3", "psutil>=7.1.3"]
 
 [dependency-groups]
-dev = ["pytest>=9.0.2", "twine>=6.2.0"]
+dev = [
+    "pytest>=9.0.2",
+    "twine>=6.2.0",
+]
 
 [project.scripts]
 androtools = "androtools.__main__:main"
