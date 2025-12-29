@@ -162,8 +162,9 @@ class GEmu(Device):
     # def adb_shell(self, cmd: str | list, encoding: str | None = None):
     def adb_shell(self, cmd: str | list):
         """执行 adb shell 命令"""
-        logger.debug(f"run shell cmd : {cmd}")
+        logger.info(f"run shell cmd : {cmd}")
         if not self.check_device_status():
+            logger.error(f"{self.name} 设备丢失。")
             raise RuntimeError(f"{self.name} 设备丢失。")
         if isinstance(cmd, str):
             cmd = cmd.split()
@@ -171,7 +172,7 @@ class GEmu(Device):
 
     def adb(self, cmd: str | list):
         """执行 adb 命令"""
-        logger.debug(f"run cmd : {str(cmd)}")
+        logger.info(f"run cmd : {str(cmd)}")
         if isinstance(cmd, str):
             cmd = cmd.split()
         if not self.check_device_status():

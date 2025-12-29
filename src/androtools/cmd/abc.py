@@ -118,7 +118,7 @@ class CMD:
                 pass
 
             if out:
-                logger.debug(out)
+                logger.info(out)
             if err:
                 logger.error(" ".join(cmd_list))
                 logger.error(err)

@@ -11,10 +11,10 @@ if 0 in logger._core.handlers:  # type: ignore
 
 
 def log_filter(record):
-    return __name__ in record["file"].path
+    return "androtools" in record["name"]
 
 
-def setup_logging(sink: str = "android.log", level: str = "INFO"):
+def setup_logging(sink: str = "androtools.log", level: str = "INFO"):
     """打开日志
 
     level 日志级别, logging.DEBUG, logging.INFO 等等。
