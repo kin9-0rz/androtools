@@ -116,6 +116,9 @@ class NoxPlayer(Device):
         self.vm_pid = -1
         """NoxVMHandle.exe"""
 
+    def get_pid(self) -> int:
+        return -1
+
     def is_boot(self):
         """判断模拟器是否启动"""
         r = self.nox_console.list_devices().strip()

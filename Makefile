@@ -3,6 +3,9 @@
 help: ## 帮助
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m\033[0m\n\nTargets:\n"} /^[+a-zA-Z_-]+:.*?##/ { printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
+sync: ## 同步
+	uv sync
+
 test: ## 跑测试
 	uv run pytest
 
@@ -11,4 +14,4 @@ build: ## build
 	uv build --wheel
 
 publish: build ## 发布
-	uv run twine upload dist/*.whl
+	uv publish
