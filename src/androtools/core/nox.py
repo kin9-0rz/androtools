@@ -13,21 +13,17 @@ class NoxConsole(DeviceConsole):
         super().__init__(path)
 
     def launch_device(self, idx: int | str):
-        self._run(["launch", f"-index:{idx}"])
-        sleep(3)
+        return self._run(["launch", f"-index:{idx}"])
 
     def reboot_device(self, idx: int | str):
-        self._run(["reboot", f"-index:{idx}"])
-        sleep(3)
+        return self._run(["reboot", f"-index:{idx}"])
 
     def quit_device(self, idx: int | str):
-        self._run(["quit", f"-index:{idx}"])
-        sleep(3)
+        return self._run(["quit", f"-index:{idx}"])
 
     def quit_all_devices(self):
         """关闭所有的模拟器"""
-        self._run(["quitall"])
-        sleep(3)
+        return self._run(["quitall"])
 
     def list_devices(self) -> str:
         """列出所有模拟器信息
@@ -58,13 +54,15 @@ class NoxConsole(DeviceConsole):
         return r.output
 
     # installapp <-name:nox_name | -index:nox_index> -filename:<apk_file_name>
-    def install_app(self, idx: int | str, apk: str):
+    def install_app(self, idx: int | str, apk_path: str) -> CmdResult:
         """什么时候安装成功是不知道的"""
-        return self._run(["installapp", f"-index:{idx}", f"-filename:{apk}"])
+        return self._run(["installapp", f"-index:{idx}", f"-filename:{apk_path}"])
 
     # uninstallapp <-name:nox_name | -index:nox_index> -packagename:<apk_package_name>
-    def uninstall_app(self, idx: int | str, package: str):
-        return self._run(["uninstallapp", f"-index:{idx}", f"-packagename:{package}"])
+    def uninstall_app(self, idx: int | str, package_name: str):
+        return self._run(
+            ["uninstallapp", f"-index:{idx}", f"-packagename:{package_name}"]
+        )
 
     # runapp <-name:nox_name | -index:nox_index> -packagename:<apk_package_name>
     def run_app(self, idx: int | str, package: str):
@@ -159,8 +157,9 @@ class NoxPlayer(Device):
             p.kill()
 
     def reboot(self):
-        self.nox_console.reboot_device(self.index)
-        return self.get_status()
+        # self.nox_console.reboot_device(self.index)
+        # return self.get_status()
+        pass
 
     def install_app_by_console(self, apk_path: str) -> CmdResult:
         # NOTE 默认无运行时权限，需要手动授权

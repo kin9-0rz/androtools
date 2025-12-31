@@ -4,13 +4,13 @@ from time import sleep
 
 import psutil
 
-from androtools.cmd import CMD
 from androtools.cmd.result import CmdResult
-from androtools.core.device import Device, DeviceInfo
+from androtools.core.device import Device, DeviceConsole, DeviceInfo
 from androtools import logger
 
 
-class LDConsole(CMD):
+# class LDConsole(CMD):
+class LDConsole(DeviceConsole):
     """使用 ldconsole.exe 对模拟器进行管理"""
 
     def __init__(self, path=shutil.which("ldconsole.exe")):
@@ -63,11 +63,11 @@ class LDConsole(CMD):
         )
 
     # installapp <--name mnq_name | --index mnq_idx> --filename <apk_file_name>
-    def install_app(self, idx: int | str, apk_path: str):
+    def install_app(self, idx: int | str, apk_path: str) -> CmdResult:
         return self._run(["installapp", "--index", str(idx), "--filename", apk_path])
 
     # uninstallapp <--name mnq_name | --index mnq_idx> --packagename <apk_package_name>
-    def uninstall_app(self, idx: int | str, package_name: str):
+    def uninstall_app(self, idx: int | str, package_name: str) -> CmdResult:
         return self._run(
             ["uninstallapp", "--index", str(idx), "--packagename", package_name]
         )
@@ -121,15 +121,14 @@ class LDPlayer(Device):
         super().__init__(info)
         self.index = info.index
         self.name = info.name
-        self.ldconsole = LDConsole(info.console_path)
-        self.pid = self.get_pid()
+        self.console = LDConsole(info.console_path)
 
     def get_pid(self) -> int:
-        pid = self.ldconsole.get_pid(int(self.index))
+        pid = self.console.get_pid(int(self.index))
         return int(pid)
 
     def kill_app(self, package):
-        self.ldconsole.kill_app(self.index, package)
+        self.console.kill_app(self.index, package)
 
     def is_crashed(self):
         """
@@ -139,10 +138,10 @@ class LDPlayer(Device):
         # NOTE - 注意：每个模拟器的情况不一样！
 
         # 启动 com.android.settings
-        self.adb_shell(["am", "start", "com.android.settings"])
+        self.adb.run_shell_cmd(["am", "start", "com.android.settings"])
         sleep(3)
         # dumpsys window windows | grep mCurrentFocus
-        result = self.adb_shell(
+        result = self.adb.run_shell_cmd(
             ["dumpsys", "window", "windows", "|", "grep", "mCurrentFocus"]
         )
 
@@ -150,16 +149,16 @@ class LDPlayer(Device):
         if result.output_contain("com.android.settings"):
             logger.warning(f"[{self.name}] 无法启动设置，杀死系统界面，重新启动设置。")
             self.kill_app("com.android.launcher3")
-            self.adb_shell(["am", "start", "com.android.settings"])
-            out = self.adb_shell(
+            self.adb.run_shell_cmd(["am", "start", "com.android.settings"])
+            out = self.adb.run_shell_cmd(
                 ["dumpsys", "window", "windows", "|", "grep", "mCurrentFocus"]
             ).output
             if "com.android.settings" not in out:
                 logger.warning(f"[{self.name}] 无法启动设置，可能需要重启模拟器。")
                 return True
 
-        self.home()
-        result = self.adb_shell(
+        # self.home()
+        result = self.adb.run_shell_cmd(
             ["dumpsys", "window", "windows", "|", "grep", "mCurrentFocus"]
         )
         if result.output_contain("com.android.launcher3"):
@@ -170,38 +169,38 @@ class LDPlayer(Device):
     def launch(self):
         if self.is_boot():
             return
-        self.ldconsole.launch_device(self.info.index)
+        self.console.launch_device(self.info.index)
         sleep(5)
         self.init_pid()
 
     def getprop(self, prop: str | None = None):
-        return self.ldconsole.getprop(self.index, prop)
+        return self.console.getprop(self.index, prop)
 
     def install_app_by_console(self, apk_path: str):
-        r = self.ldconsole.install_app(self.index, apk_path)
+        r = self.console.install_app(self.index, apk_path)
         return r
 
     def uninstall_app_by_console(self, package_name: str) -> CmdResult:
-        return self.ldconsole.uninstall_app(self.index, package_name)
+        return self.console.uninstall_app(self.index, package_name)
 
     def run_app(self, package):
-        self.ldconsole.run_app(self.index, package)
+        self.console.run_app(self.index, package)
         return True
 
     def close(self):
-        self.ldconsole.quit_device(self.index)
+        self.console.quit_device(self.index)
 
     def reboot(self):
-        self.ldconsole.reboot_device(self.index)
+        self.console.reboot_device(self.index)
         sleep(5)
         self.init_pid()
 
     def adb_by_console(self, cmd: str | list, encoding: str | None = None):
         if isinstance(cmd, list):
             cmd = " ".join(cmd)
-        return self.ldconsole.adb(self.index, cmd, encoding=encoding)
+        return self.console.adb(self.index, cmd, encoding=encoding)
 
     def adb_shell_by_console(self, cmd: str | list, encoding: str | None = None):
         if isinstance(cmd, list):
             cmd = " ".join(cmd)
-        return self.ldconsole.adb_shell(self.index, cmd, encoding=encoding)
+        return self.console.adb_shell(self.index, cmd, encoding=encoding)

@@ -159,26 +159,6 @@ class GEmu(Device):
         status = self._get_state()
         return status == G_STATE.DEVICE
 
-    # def adb_shell(self, cmd: str | list, encoding: str | None = None):
-    def adb_shell(self, cmd: str | list):
-        """执行 adb shell 命令"""
-        logger.info(f"run shell cmd : {cmd}")
-        if not self.check_device_status():
-            logger.error(f"{self.name} 设备丢失。")
-            raise RuntimeError(f"{self.name} 设备丢失。")
-        if isinstance(cmd, str):
-            cmd = cmd.split()
-        return self._adb.run_shell_cmd(cmd, self.info.serial)
-
-    def adb(self, cmd: str | list):
-        """执行 adb 命令"""
-        logger.info(f"run cmd : {str(cmd)}")
-        if isinstance(cmd, str):
-            cmd = cmd.split()
-        if not self.check_device_status():
-            raise RuntimeError(f"{self.name} 设备丢失。")
-        return self._adb.run_cmd(cmd)
-
     def _init_sdk(self):
         output = self.adb_shell(["getprop", "ro.build.version.sdk"]).output
         if isinstance(output, str):
@@ -190,7 +170,7 @@ class GEmu(Device):
     def is_ok(self):
         try:
             # 点击HOME键，超过5秒没反应
-            func_timeout(5, self.home)
+            func_timeout(5, self.touch.home)
         except FunctionTimedOut:
             return False
         return True

@@ -3,11 +3,6 @@
 from enum import Enum
 
 
-class DeviceState(Enum):
-    Free = 0
-    Busy = 1
-
-
 Android_API_MAP = {
     14: ("Android 4.0.1", "Ice Cream Sandwich"),
     15: ("Android 4.0.3", "Ice Cream Sandwich"),
@@ -31,6 +26,7 @@ Android_API_MAP = {
     33: ("Android 13", "TIRAMISU"),
     34: ("Android 14", "Upside Down Cake"),
     35: ("Android 15", "Vanilla Ice Cream"),
+    36: ("Android 16", "Baklava"),
 }
 
 
