@@ -98,6 +98,12 @@ class DeviceConsole(CMD):
 
 
 class Device(ABC):
+    """
+    初始化Android设备
+
+    设备的启动、重启、关闭。
+    """
+
     def __init__(self, info: DeviceInfo) -> None:
         self.info = info
         self.name = info.name

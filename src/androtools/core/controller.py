@@ -41,6 +41,7 @@ class DeviceStatus(Enum):
 class DeviceController:
     """设备控制器
 
+    直接绑定设备。
     设备状态，模拟器内存占用等等。
 
     1. 设备操作，启动、重启、关闭。
