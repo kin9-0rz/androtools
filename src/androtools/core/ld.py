@@ -35,12 +35,15 @@ class LDConsole(CMD):
         """
         return self._run(["list2"]).output
 
-    def get_pid(self, idx: int):
+    def get_pids(self, idx: int):
         output = self.list_devices()
         lines = output.splitlines()
         line = lines[idx]
         parts = line.split(",")
-        return parts[6]
+
+        pid = int(parts[6])
+        vbox_pid = int(parts[7])
+        return pid, vbox_pid
 
     def launch_device(self, idx: int | str):
         return self._run(["launch", "--index", str(idx)])
@@ -122,11 +125,25 @@ class LDPlayer(Device):
         self.index = info.index
         self.name = info.name
         self.ldconsole = LDConsole(info.console_path)
-        self.pid = self.get_pid()
+        self.pid = -1
+        self.vbox_pid = -1
+
+    def is_boot(self) -> bool:
+        if self.pid != -1 and self.vbox_pid != -1:
+            return True
+        return False
+
+    def init_pids(self):
+        pids = self.ldconsole.get_pids(int(self.index))
+        self.pid = pids[0]
+        self.vbox_pid = pids[1]
 
     def get_pid(self) -> int:
-        pid = self.ldconsole.get_pid(int(self.index))
-        return int(pid)
+        self.init_pids()
+        return self.pid
+
+    def get_vbox_pid(self):
+        pass
 
     def kill_app(self, package):
         self.ldconsole.kill_app(self.index, package)
@@ -168,11 +185,40 @@ class LDPlayer(Device):
         return False
 
     def launch(self):
-        if self.is_boot():
-            return
-        self.ldconsole.launch_device(self.info.index)
+        while True:
+            self.ldconsole.launch_device(self.info.index)
+            sleep(10)
+            pids = self.ldconsole.get_pids(int(self.index))
+            self.pid = pids[0]
+            self.vbox_pid = pids[1]
+            if self.pid == -1:
+                self.close()
+                continue
+            if self.vbox_pid == -1:
+                self.close()
+                continue
+            break
+
+    def reboot(self):
+        self.ldconsole.reboot_device(self.index)
+        while True:
+            sleep(10)
+            pids = self.ldconsole.get_pids(int(self.index))
+            self.pid = pids[0]
+            self.vbox_pid = pids[1]
+            if self.pid == -1:
+                self.close()
+                self.launch()
+                continue
+            if self.vbox_pid == -1:
+                self.close()
+                self.launch()
+                continue
+            break
+
+    def close(self):
+        self.ldconsole.quit_device(self.index)
         sleep(5)
-        self.init_pid()
 
     def getprop(self, prop: str | None = None):
         return self.ldconsole.getprop(self.index, prop)
@@ -187,14 +233,6 @@ class LDPlayer(Device):
     def run_app(self, package):
         self.ldconsole.run_app(self.index, package)
         return True
-
-    def close(self):
-        self.ldconsole.quit_device(self.index)
-
-    def reboot(self):
-        self.ldconsole.reboot_device(self.index)
-        sleep(5)
-        self.init_pid()
 
     def adb_by_console(self, cmd: str | list, encoding: str | None = None):
         if isinstance(cmd, list):
