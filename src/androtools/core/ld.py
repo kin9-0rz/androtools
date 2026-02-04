@@ -4,10 +4,10 @@ from time import sleep
 
 import psutil
 
+from androtools import logger
 from androtools.cmd import CMD
 from androtools.cmd.result import CmdResult
 from androtools.core.device import Device, DeviceInfo
-from androtools import logger
 
 
 class LDConsole(CMD):
@@ -128,22 +128,8 @@ class LDPlayer(Device):
         self.pid = -1
         self.vbox_pid = -1
 
-    def is_boot(self) -> bool:
-        if self.pid != -1 and self.vbox_pid != -1:
-            return True
-        return False
-
-    def init_pids(self):
-        pids = self.ldconsole.get_pids(int(self.index))
-        self.pid = pids[0]
-        self.vbox_pid = pids[1]
-
-    def get_pid(self) -> int:
-        self.init_pids()
-        return self.pid
-
     def get_vbox_pid(self):
-        pass
+        return self.vbox_pid
 
     def kill_app(self, package):
         self.ldconsole.kill_app(self.index, package)
@@ -184,37 +170,26 @@ class LDPlayer(Device):
             return True
         return False
 
+    def is_boot(self) -> bool:
+        pids = self.ldconsole.get_pids(int(self.index))
+        self.pid = pids[0]
+        self.vbox_pid = pids[1]
+
+        # 同时存在 PID，才表示完全启动。
+        return self.pid != -1 and self.vbox_pid != -1
+
     def launch(self):
+        if self.is_boot():
+            return
+
         while True:
             self.ldconsole.launch_device(self.info.index)
             sleep(10)
-            pids = self.ldconsole.get_pids(int(self.index))
-            self.pid = pids[0]
-            self.vbox_pid = pids[1]
-            if self.pid == -1:
-                self.close()
-                continue
-            if self.vbox_pid == -1:
-                self.close()
-                continue
-            break
+            if self.is_boot():
+                break
 
-    def reboot(self):
-        self.ldconsole.reboot_device(self.index)
-        while True:
+            self.close()
             sleep(10)
-            pids = self.ldconsole.get_pids(int(self.index))
-            self.pid = pids[0]
-            self.vbox_pid = pids[1]
-            if self.pid == -1:
-                self.close()
-                self.launch()
-                continue
-            if self.vbox_pid == -1:
-                self.close()
-                self.launch()
-                continue
-            break
 
     def close(self):
         self.ldconsole.quit_device(self.index)

@@ -1,17 +1,17 @@
 # Android模拟器、雷电模拟器的基类
+import subprocess
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
 from typing import Literal, Sequence
-import time
-import subprocess
 
-from func_timeout import FunctionTimedOut, func_timeout
 import psutil
-from androtools import logger
+from func_timeout import FunctionTimedOut, func_timeout
 
-from androtools.cmd import CMD
+from androtools import logger
 from androtools.android_sdk.platform_tools import ADB
+from androtools.cmd import CMD
 from androtools.cmd.result import CmdResult
 from androtools.core.constants import Android_API_MAP, KeyEvent
 
@@ -130,12 +130,8 @@ class Device(ABC):
         self._is_busy = False
         self.pid = -1
 
-    @abstractmethod
     def get_pid(self) -> int:
-        pass
-
-    def init_pid(self):
-        self.pid = self.get_pid()
+        return self.pid
 
     def get_memory_rss(self):
         """获取常驻内存大小字节"""
@@ -204,7 +200,6 @@ class Device(ABC):
     @abstractmethod
     def launch(self):
         """启动模拟器"""
-        # NOTE: 必须设置 pid
         pass
 
     @abstractmethod
@@ -214,8 +209,9 @@ class Device(ABC):
 
     @abstractmethod
     def reboot(self):
-        """重启模拟器"""
-        pass
+        self.close()
+        time.sleep(10)
+        self.launch()
 
     def launch_and_wait_for_device(self):
         """设备第一次，必须要确认是否已经启动
