@@ -207,7 +207,6 @@ class Device(ABC):
         """关闭模拟器"""
         pass
 
-    @abstractmethod
     def reboot(self):
         self.close()
         time.sleep(10)
