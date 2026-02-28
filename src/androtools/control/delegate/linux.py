@@ -1,4 +1,4 @@
-from androtools.core.delegate import ABCDelegate
+from androtools.control.delegate import ABCDelegate
 
 
 class LinuxCommand(ABCDelegate):

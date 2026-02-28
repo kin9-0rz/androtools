@@ -1,12 +1,6 @@
 from enum import Enum
 
-from func_timeout import FunctionTimedOut, func_timeout
-
-from androtools import logger
-from androtools.android_sdk.emulator import Emulator
-from androtools.android_sdk.platform_tools import ADB
-from androtools.core.constants import Android_API_MAP
-from androtools.core.device import Device, DeviceInfo
+from androtools.device.abc import Device, DeviceInfo
 
 
 class STATE(Enum):

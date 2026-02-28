@@ -3,8 +3,8 @@ from enum import Enum
 from typing import Sequence
 
 from androtools import logger
-from androtools.core import Device
-from androtools.core.controller import DeviceController
+from androtools.device import Device
+from androtools.control.controller import DeviceController
 
 
 class WorkStatus(Enum):
@@ -25,6 +25,7 @@ class DeviceManager:
         self._devices: list[Device] = list(devices)
         self._device_map: dict[Device, WorkStatus] = {}
         self._device_map.clear()
+        self.device_status = {}
         for dev in devices:
             logger.info(f"初始化设备 {dev.name}")
             dc = DeviceController(dev)

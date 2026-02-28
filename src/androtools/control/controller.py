@@ -3,15 +3,15 @@ import time
 from enum import Enum
 
 from androtools import logger
-from androtools.core.constants import KeyEvent
-from androtools.core.delegate import (
+from androtools.control.delegate import (
     AppDelegate,
     LinuxCommand,
     ProxyDelegate,
     TouchController,
 )
-from androtools.core.delegate.env import EnvDelegate
-from androtools.core.device import Device, DeviceADB
+from androtools.control.delegate.env import EnvDelegate
+from androtools.device.constants import KeyEvent
+from androtools.device.device import Device, DeviceADB
 
 
 class DeviceStatus(Enum):

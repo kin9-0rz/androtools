@@ -5,7 +5,7 @@ from time import sleep
 import psutil
 
 from androtools.cmd.result import CmdResult
-from androtools.core.device import Device, DeviceConsole, DeviceInfo
+from androtools.device.abc import Device, DeviceConsole, DeviceInfo
 
 
 class NoxConsole(DeviceConsole):
@@ -195,12 +195,12 @@ class NoxPlayer(Device):
             if len(ports) > 0:
                 break
 
-            self._adb_wrapper.run_cmd(["devices", "-l"])
+            self.adb.run_cmd(["devices", "-l"])
             sleep(1)
 
         while True:
             serial = None
-            result = self._adb_wrapper.run_cmd(["devices", "-l"])
+            result = self.adb.run_cmd(["devices", "-l"])
             for line in result.output.split("\n"):
                 if "daemon not running" in line:
                     break

@@ -1,6 +1,7 @@
 from dataclasses import dataclass
-from androtools.core.constants import Android_API_MAP
-from androtools.core.delegate import ABCDelegate
+
+from androtools.control.delegate import ABCDelegate
+from androtools.device.constants import Android_API_MAP
 
 
 @dataclass

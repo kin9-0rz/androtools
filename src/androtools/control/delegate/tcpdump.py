@@ -2,8 +2,8 @@ import os
 import time
 
 from androtools.android_sdk.platform_tools import ADB
-from androtools.core.delegate import ABCDelegate
-from androtools.core.device import DeviceADB
+from androtools.control.delegate import ABCDelegate
+from androtools.device.device import DeviceADB
 
 
 class IptableDelegate:

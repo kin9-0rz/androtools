@@ -9,11 +9,11 @@ import psutil
 from androtools.android_sdk.platform_tools import ADB
 from androtools.cmd import CMD
 from androtools.cmd.result import CmdResult
-from androtools.core.constants import Android_API_MAP
+from androtools.device.constants import Android_API_MAP
 
 
 class DeviceType(Enum):
-    """模拟器类型"""
+    """Android设备类型"""
 
     PHONE = "phone"
     """手机"""
@@ -99,7 +99,7 @@ class DeviceConsole(CMD):
 
 class Device(ABC):
     """
-    初始化Android设备
+    Android设备
 
     设备的启动、重启、关闭。
     """

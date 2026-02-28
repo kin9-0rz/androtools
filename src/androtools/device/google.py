@@ -5,8 +5,8 @@ from func_timeout import FunctionTimedOut, func_timeout
 from androtools import logger
 from androtools.android_sdk.emulator import Emulator
 from androtools.android_sdk.platform_tools import ADB
-from androtools.core.constants import Android_API_MAP
-from androtools.core.device import Device, DeviceInfo
+from androtools.device.abc import Device, DeviceInfo
+from androtools.device.constants import Android_API_MAP
 
 
 class STATE(Enum):
@@ -75,13 +75,6 @@ class GEmu(Device):
         self.name = info.name
         self._adb = ADB(info.path)
         self._emulator = Emulator(info.emu_path)
-
-        # 设备初始化，则表示设备一定存在
-        state = self.get_status()
-        logger.debug(f"设备 {self.name} 状态: {state.value}")
-        print("->>>>>>>>>>>>>>>", state)
-        if state != G_STATE.DEVICE:
-            raise RuntimeError(f"Device is {state.value}")
 
         self.sdk = 0
         self._init_sdk()
@@ -160,29 +153,16 @@ class GEmu(Device):
         return status == G_STATE.DEVICE
 
     def _init_sdk(self):
-        output = self.adb_shell(["getprop", "ro.build.version.sdk"]).output
+        output = self.adb.run_shell_cmd(["getprop", "ro.build.version.sdk"]).output
         if isinstance(output, str):
             self.sdk = int(output)
         elif isinstance(output, list):
             self.sdk = int(output[0])
         return self.sdk
 
-    def is_ok(self):
-        try:
-            # 点击HOME键，超过5秒没反应
-            func_timeout(5, self.touch.home)
-        except FunctionTimedOut:
-            return False
-        return True
-
     def wait_for(self, state: STATE, transport: TRANSPORT = TRANSPORT.ANY):
         cmd = "wait-for"
         if transport != TRANSPORT.ANY:
             cmd += f"-{transport.value}"
         cmd += f"-{state}"
-        return self.adb([cmd])
-
-    def is_boot_completed(self) -> bool:
-        """判断设备是否处于开机状态"""
-        output = self.adb_shell(["getprop", "sys.boot_completed"]).output
-        return "1" in output
+        return self.adb.run_cmd([cmd])

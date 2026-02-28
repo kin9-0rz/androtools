@@ -5,11 +5,10 @@ from time import sleep
 import psutil
 
 from androtools.cmd.result import CmdResult
-from androtools.core.device import Device, DeviceConsole, DeviceInfo
+from androtools.device.abc import Device, DeviceConsole, DeviceInfo
 from androtools import logger
 
 
-# class LDConsole(CMD):
 class LDConsole(DeviceConsole):
     """使用 ldconsole.exe 对模拟器进行管理"""
 

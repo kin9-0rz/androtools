@@ -1,7 +1,7 @@
 import time
 from typing import Literal
 
-from androtools.core.delegate import ABCDelegate
+from androtools.control.delegate import ABCDelegate
 
 
 class AppDelegate(ABCDelegate):

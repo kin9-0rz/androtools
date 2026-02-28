@@ -2,8 +2,8 @@ from dataclasses import dataclass
 
 from func_timeout import FunctionTimedOut, func_timeout
 
-from androtools.core.constants import KeyEvent
-from androtools.core.delegate import ABCDelegate
+from androtools.control.delegate import ABCDelegate
+from androtools.device.constants import KeyEvent
 
 
 @dataclass
