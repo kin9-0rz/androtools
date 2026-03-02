@@ -101,38 +101,35 @@ class DeviceController:
         else:
             return status  # 模拟器未启动
 
-        # 刷新模拟器的状态
-        self.device.reconnect()
-        time.sleep(3)
-
-        self.device.adb.run_cmd(["get-state"])
-        result = self.adb.adb(["get-state"])
-        if result.contain("not found"):
-            # NOTE: adb 执行的速度太快可能会导致 not found
-            # error: device 'emulator-5556' not found
-            # 再次确认
-            self.device.reconnect()
-            time.sleep(5)
+        is_tried = False
+        while True:
+            self.device.adb.run_cmd(["get-state"])
             result = self.adb.adb(["get-state"])
             if result.contain("not found"):
+                # error: device 'emulator-5556' not found
+                if not is_tried:
+                    is_tried = True
+                    # NOTE: adb 执行的速度太快可能会导致 not found
+                    self.device.reconnect()
+                    time.sleep(5)
+                    continue
                 status = DeviceStatus.ERORR
                 return status
 
-        if result.output_equal("device"):
-            status = DeviceStatus.DEVICE
-            try:
-                self.touch.is_crashed()
+            if result.output_equal("device"):
+                status = DeviceStatus.DEVICE
                 # TODO: 可以尝试使用 am 相关命令做测试
                 # self.adb_shell(["ps"])
-                self.touch.input_keyevent(KeyEvent.KEYCODE_ALT_LEFT)
-            except Exception as e:
-                logger.exception(e)
-                status = DeviceStatus.ERORR
+                is_ok = self.touch.input_keyevent(KeyEvent.KEYCODE_ALT_LEFT)
+                if not is_ok:
+                    logger.warning("执行命令超时！")
+                    status = DeviceStatus.ERORR
+                    return status
+            elif result.error_contain("offline"):
+                status = DeviceStatus.OFFLINE
+                logger.debug(f"设备 [{self.device.name}] 状态: {status}")
                 return status
-        elif result.error_contain("offline"):
-            status = DeviceStatus.OFFLINE
-            logger.debug(f"设备 [{self.device.name}] 状态: {status}")
-            return status
+            break
 
         if self.device.is_boot_completed():
             status = DeviceStatus.BOOT_COMPLETED

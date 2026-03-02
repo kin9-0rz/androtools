@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 
-from func_timeout import FunctionTimedOut, func_timeout
 
 from androtools.control.delegate import ABCDelegate
 from androtools.device.constants import KeyEvent
@@ -54,10 +53,10 @@ class TouchController(ABCDelegate):
     def long_press(self, x: int, y: int, duration: int = 1000):
         self.swipe(x, y, x, y, duration)
 
-    def input_keyevent(self, keyevent: KeyEvent):
+    def input_keyevent(self, keyevent: KeyEvent) -> bool:
         cmd = ["input", "keyevent", str(keyevent.value)]
         try:
-            # 输入事件5s必定超时
+            # 输入事件, 5s超时
             self.adb.adb_shell(cmd, 5)
             return True
         except Exception:
@@ -76,12 +75,3 @@ class TouchController(ABCDelegate):
     def input_text(self, txt: str):
         cmd = ["input", "text", txt]
         self.adb.adb_shell(cmd)
-
-    def is_crashed(self):
-        """5秒没响应，则定义为设备崩溃"""
-        try:
-            return func_timeout(
-                5, self.input_keyevent, args=(KeyEvent.KEYCODE_ALT_LEFT,)
-            )
-        except FunctionTimedOut:
-            return True

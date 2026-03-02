@@ -1,4 +1,5 @@
 import os
+import time
 
 import pytest
 
@@ -18,7 +19,12 @@ def dc() -> DeviceController:
     info = DeviceInfo()
     phone = Phone(info)
     dc = DeviceController(phone)
+
+    start = time.time()
     status = dc.get_status()
+    end = time.time()
+    print()
+    print(status, end - start)
     if status != DeviceStatus.STOP:
         return dc
     raise Exception("模拟器没启动，或者手机没连接")
