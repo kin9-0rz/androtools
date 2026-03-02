@@ -4,9 +4,9 @@ from time import sleep
 
 import psutil
 
+from androtools import logger
 from androtools.cmd.result import CmdResult
 from androtools.device.abc import Device, DeviceConsole, DeviceInfo
-from androtools import logger
 
 
 class LDConsole(DeviceConsole):

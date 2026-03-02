@@ -1,6 +1,6 @@
 import sys
 
-from androtools.core.ld import LDConsole
+from androtools.device.ld import LDConsole
 
 
 def test_ld():

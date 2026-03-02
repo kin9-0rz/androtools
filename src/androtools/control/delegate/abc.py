@@ -1,4 +1,4 @@
-from androtools.device.device import DeviceADB
+from androtools.device.abc import DeviceADB
 
 
 class ABCDelegate:

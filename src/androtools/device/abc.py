@@ -6,7 +6,7 @@ from typing import Optional
 
 import psutil
 
-from androtools.android_sdk.platform_tools import ADB
+from androtools.android_sdk.adb import ADB
 from androtools.cmd import CMD
 from androtools.cmd.result import CmdResult
 from androtools.device.constants import Android_API_MAP

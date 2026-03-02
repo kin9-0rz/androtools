@@ -10,8 +10,8 @@ from androtools.control.delegate import (
     TouchController,
 )
 from androtools.control.delegate.env import EnvDelegate
+from androtools.device.abc import Device, DeviceADB
 from androtools.device.constants import KeyEvent
-from androtools.device.device import Device, DeviceADB
 
 
 class DeviceStatus(Enum):

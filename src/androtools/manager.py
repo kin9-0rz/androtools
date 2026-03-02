@@ -3,8 +3,8 @@ from enum import Enum
 from typing import Sequence
 
 from androtools import logger
-from androtools.device import Device
 from androtools.control.controller import DeviceController
+from androtools.device import Device
 
 
 class WorkStatus(Enum):

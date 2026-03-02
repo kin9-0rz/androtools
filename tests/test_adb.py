@@ -1,5 +1,5 @@
 import pytest
-from androtools.android_sdk.platform_tools import ADB
+from androtools.android_sdk.adb import ADB
 
 
 @pytest.fixture

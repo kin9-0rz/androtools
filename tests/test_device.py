@@ -2,9 +2,9 @@ import os
 
 import pytest
 
-from androtools.core import DeviceInfo
-from androtools.core.controller import DeviceController, DeviceStatus
-from androtools.core.phone import Phone
+from androtools.control.controller import DeviceController, DeviceStatus
+from androtools.device import DeviceInfo
+from androtools.device.phone import Phone
 
 # import androtools
 
