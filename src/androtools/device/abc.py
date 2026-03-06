@@ -2,14 +2,12 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
+from os import stat
 
-import psutil
 
 from androtools.android_sdk.adb import ADB
 from androtools.cmd import CMD
 from androtools.cmd.result import CmdResult
-from androtools.device.constants import Android_API_MAP
 
 
 class DeviceType(Enum):
@@ -37,10 +35,11 @@ class DeviceInfo:
 
     device_type: DeviceType = DeviceType.PHONE
     index: str = "0"  # 模拟器序号，雷电模拟器、夜神模拟器的序号
-    serial: Optional[str] = None  # 模拟器序列号，adb -s 的操作对象
+    serial: str = ""  # 模拟器序列号，adb -s 的操作对象
+    # 模拟器，只要连上了，获取这些信息是可以获取的
     name: str = ""  # 模拟器名称，它可以修改。
     version: int = 9  # 模拟器版本, 如 9 表示 Android 9
-    sdk: int = 28
+    sdk: int = 28  # 这个有必要吗？
     adb_path: str = "adb"  # adb 路径
     console_path: str = ""  # 模拟器控制器；雷电模拟器则是 ldconsole
     gateway: str = ""  # 网关IP
@@ -97,89 +96,82 @@ class DeviceConsole(CMD):
         pass
 
 
+class ConnectionStatus(Enum):
+    """设备连接状态"""
+
+    NOT_FOUND = ""
+    """未发现；模拟器没有启动，手机没有连接电脑，远程设备没有连接"""
+    DEVICE = "device"
+    """设备已连接"""
+    OFFLINE = "offline"
+    """设备离线；adb 服务异常，设备异常，需要重连。"""
+    UNAUTHORIZED = "unauthorized"
+    """未授权"""
+    SIDELOAD = "sideload"
+    """侧载模式"""
+    RECOVERY = "recovery"
+    """恢复模式"""
+    HOST = "host"
+    """设备被配置为USB主机"""
+
+    @staticmethod
+    def get(value: int):
+        for item in ConnectionStatus:
+            if item.value == value:
+                return item
+        raise Exception("未知状态")
+
+    def __str__(self) -> str:
+        return self.value
+
+
 class Device(ABC):
     """
     Android设备
 
     设备的启动、重启、关闭。
+    不需要其他任何操作！
+
+    设备3要素：
+    1. 连接方式，usb[emulator, phone]，wifi，remote
+        wifi和remote需要connect去连接。
+    2. device-id, serial, adb devices[0]
+    3. adb - 模拟器连接
+    4. console - 模拟器控制
     """
 
-    def __init__(self, info: DeviceInfo) -> None:
-        self.info = info
-        self.name = info.name
-        self.android_version = info.version
-        self.adb: ADB = ADB(info.adb_path)
-        self._is_busy = False
-        self.console = DeviceConsole(self.info.console_path)
+    def __init__(self, adb_path, device_serial, console_path) -> None:
+        self.serial = device_serial
+        self.adb: ADB = ADB(adb_path)
+        self.console = DeviceConsole(console_path)
 
-        self.pid = -1
-        self.init_pid()
-        self.sdk = self.get_sdk()
+    def get_status(self):
+        """获取当前设备的连接状态"""
+        devices = self.adb.get_devices()
 
-    @abstractmethod
-    def get_pid(self) -> int:
-        pass
+        for name, status, _ in devices:
+            if self.serial == name:
+                if "device" == status:
+                    return ConnectionStatus.DEVICE
+                elif "offline" == status:
+                    return ConnectionStatus.OFFLINE
+                elif "unauthorized" == status:
+                    return ConnectionStatus.UNAUTHORIZED
+                else:
+                    print(devices)
+                    raise Exception(f"未知状态: {name} - {status}")
+        return ConnectionStatus.NOT_FOUND
 
-    def init_pid(self):
-        self.pid = self.get_pid()
+    def connect(self):
+        """
+        只有IP网络设备才需要连接。
+        """
+        if ":" in self.serial:
+            self.adb.connect(self.serial)
 
-    def get_memory_rss(self):
-        """获取常驻内存大小字节"""
-        if self.pid == -1:
-            return 0
-        proc = psutil.Process(self.pid)
-        mem_info = proc.memory_info()
-        return mem_info.rss
-
-    @property
-    def is_busy(self) -> bool:
-        return self._is_busy
-
-    @is_busy.setter
-    def is_busy(self, value: bool) -> None:
-        self._is_busy = value
-
-    def get_android_os_name(self):
-        if self.sdk is None:
-            self.sdk = self.get_sdk()
-
-        self.android_version = "Unknown"
-        if result := Android_API_MAP.get(self.sdk):
-            self.android_version = result[0]
-
-    def __str__(self) -> str:
-        return f"{self.info.name}-{self.android_version}"
-
-    def is_boot(self) -> bool:
-        """判断设备是否已经启动"""
-        # 如果已经有进程ID，则表示已经启动
-        return self.pid != -1
-
-    def getprop(self, prop: str | None = None) -> str:
-        """获取模拟器属性"""
-        if prop:
-            result = self.adb.run_shell_cmd(["getprop", prop])
-        else:
-            result = self.adb.run_shell_cmd(["getprop"])
-
-        return result.output
-
-    def get_sdk(self):
-        sdk = -1
-        output = self.getprop("ro.build.version.sdk")
-        if output == "":
-            return sdk
-
-        if isinstance(output, str):
-            sdk = int(output)
-        elif isinstance(output, list):
-            sdk = int(output[0])
-
-        return sdk
-
-    def is_boot_completed(self) -> bool:
-        r = self.getprop("sys.boot_completed")
-        return r == "1"
+    def disconnect(self):
+        if ":" in self.serial:
+            self.adb.disconnect(self.serial)
 
     @abstractmethod
     def launch(self):
@@ -197,8 +189,8 @@ class Device(ABC):
         """重启模拟器"""
         pass
 
-    def reconnect(self):
-        self.adb.run_cmd(["reconnect"])
+    def __str__(self) -> str:
+        return f"{self.serial}"
 
 
 class DeviceADB:
@@ -209,20 +201,20 @@ class DeviceADB:
 
     def adb(self, cmd: list, timeout: int = 30) -> CmdResult:
         """执行 adb 命令"""
-        return self.device.adb.run_cmd(cmd, self.device.info.serial, timeout)
+        return self.device.adb.run_cmd(cmd, self.device.serial, timeout)
 
     def adb_shell(self, cmd: list[str], timeout: int = 30) -> CmdResult:
         """执行 adb shell 命令"""
         assert cmd is not None
         assert isinstance(cmd, list)
-        return self.device.adb.run_shell_cmd(cmd, self.device.info.serial, timeout)
+        return self.device.adb.run_shell_cmd(cmd, self.device.serial, timeout)
 
     def adb_shell_daemon(self, cmd: list[str]):
         assert cmd is not None
         assert isinstance(cmd, list)
         if isinstance(cmd, str):
             raise TypeError(f"命令必须是列表：{cmd}")
-        self.device.adb.run_shell_cmd_daemon(cmd, self.device.info.serial)
+        self.device.adb.run_shell_cmd_daemon(cmd, self.device.serial)
 
     def pull(self, remote: str, local: str):
         """将文件从模拟器下载到本地"""

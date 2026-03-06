@@ -166,25 +166,9 @@ class LDPlayer(Device):
         return False
 
     def launch(self):
-        if self.is_boot():
-            return
         self.console.launch_device(self.info.index)
         sleep(5)
         self.init_pid()
-
-    def getprop(self, prop: str | None = None):
-        return self.console.getprop(self.index, prop)
-
-    def install_app_by_console(self, apk_path: str):
-        r = self.console.install_app(self.index, apk_path)
-        return r
-
-    def uninstall_app_by_console(self, package_name: str) -> CmdResult:
-        return self.console.uninstall_app(self.index, package_name)
-
-    def run_app(self, package):
-        self.console.run_app(self.index, package)
-        return True
 
     def close(self):
         self.console.quit_device(self.index)
@@ -193,13 +177,3 @@ class LDPlayer(Device):
         self.console.reboot_device(self.index)
         sleep(5)
         self.init_pid()
-
-    def adb_by_console(self, cmd: str | list, encoding: str | None = None):
-        if isinstance(cmd, list):
-            cmd = " ".join(cmd)
-        return self.console.adb(self.index, cmd, encoding=encoding)
-
-    def adb_shell_by_console(self, cmd: str | list, encoding: str | None = None):
-        if isinstance(cmd, list):
-            cmd = " ".join(cmd)
-        return self.console.adb_shell(self.index, cmd, encoding=encoding)

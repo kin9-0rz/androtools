@@ -110,7 +110,7 @@ class DeviceController:
                 if not is_tried:
                     is_tried = True
                     # NOTE: adb 执行的速度太快可能会导致 not found
-                    self.device.reconnect()
+                    self.adb.reconnect()
                     time.sleep(5)
                     continue
                 status = DeviceStatus.ERORR

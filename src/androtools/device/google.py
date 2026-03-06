@@ -1,7 +1,5 @@
 from enum import Enum
 
-from func_timeout import FunctionTimedOut, func_timeout
-
 from androtools import logger
 from androtools.android_sdk.adb import ADB
 from androtools.android_sdk.emulator import Emulator

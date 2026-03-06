@@ -6,4 +6,17 @@
 
 ## V2 说明
 
-- Device，设备只有最简单的功能。
+- ADB
+- Device
+  - 启动，一个关闭的手机，无法通过命令行启动的。
+  - 关闭
+  - 重启
+  - 连接，对于远程设备
+    - connect
+    - adb devices，查找目标设备。
+  - 断开，针对远程设备
+    - disconnect
+    - usb，则什么都不执行，没用。
+- DeviceControllor
+  - 设备控制器
+  - 具体的操作

@@ -78,29 +78,13 @@ class ADB(CMD):
         result = self.run_cmd([])
         return result.output
 
-    def get_devices(self, max_tries=10):
+    def get_devices(self):
         devices = []
 
-        counter = 0
-        while True:
-            counter += 1
-            if counter == max_tries:
-                return devices
+        self.run_cmd(["devices", "-l"])
 
-            self.run_cmd(["devices", "-l"])
-            self.run_cmd(["devices", "-l"])
-
-            result = self.run_cmd(["devices", "-l"])
-            output = result.output.strip()
-            if output == "List of devices attached":
-                sleep(0.5)
-                continue
-
-            if "127.0.0.1:" not in output:
-                break
-            self.restart_server()
-            sleep(5)
-
+        result = self.run_cmd(["devices", "-l"])
+        output = result.output.strip()
         lines = output.strip().splitlines()
         if len(lines) <= 1:
             return devices
@@ -114,10 +98,16 @@ class ADB(CMD):
 
         return devices
 
-    def connect(self, host: str, port: int):
-        result = self.run_cmd(["connect", f"{host}:{port}"])
+    def connect(self, addr: str):
+        """远程连接网络设备: host:port"""
+        result = self.run_cmd(["connect", addr])
         return result.contain("Connection refused")
         # return "Connection refused" not in output
+
+    def disconnect(self, addr: str):
+        """远程连接网络设备: host:port"""
+        result = self.run_cmd(["disconnect", addr])
+        return result.contain("Connection refused")
 
     def kill_server(self):
         self.run_cmd(["kill-server"])
