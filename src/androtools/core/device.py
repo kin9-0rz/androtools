@@ -4,7 +4,7 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from typing import Callable, Literal, Sequence
+from typing import Callable, Literal
 
 import psutil
 from func_timeout import FunctionTimedOut, func_timeout
@@ -84,11 +84,6 @@ class DeviceStatus(Enum):
         raise Exception("未知状态")
 
 
-class WorkStatus(Enum):
-    Free = 0
-    Busy = 1
-
-
 class DeviceConsole(CMD):
     """模拟器控制台，用于控制模拟器的启动和关闭。"""
 
@@ -143,7 +138,6 @@ class Device(ABC):
         self.android_version = info.version
         self.sdk = None
         self.status = DeviceStatus.STOP
-        self._is_busy = False
         self.pid = -1
 
     def get_pid(self) -> int:
@@ -156,14 +150,6 @@ class Device(ABC):
         proc = psutil.Process(self.pid)
         mem_info = proc.memory_info()
         return mem_info.rss
-
-    @property
-    def is_busy(self) -> bool:
-        return self._is_busy
-
-    @is_busy.setter
-    def is_busy(self, value: bool) -> None:
-        self._is_busy = value
 
     @property
     def adb_wrapper(self) -> AdbRunner:
@@ -565,42 +551,3 @@ class Device(ABC):
         output = save_dir + "/" + filename
         cmd = ["screencap", output]
         self.adb_shell(cmd)
-
-
-class DeviceManager:
-    """
-    只能管理 Android 同版的模拟器，不同版本，无法执行 adb。
-    1. 根据已知设备初始化。
-    2. 增加设备。
-    3. 删除设备。
-    """
-
-    # 传入的不应该是信息？而是一个具体模拟器对象
-    def __init__(self, devices: Sequence[Device]):
-        self._devices: list[Device] = list(devices)
-        self._device_map: dict[Device, WorkStatus] = {}
-        self._device_map.clear()
-        for dev in devices:
-            logger.info(f"初始化设备 {dev.name}")
-            dev.launch_and_wait_for_device()
-
-    def add(self, dev: Device):
-        dev.launch_and_wait_for_device()
-
-    def remove(self, dev: Device):
-        self._devices.remove(dev)
-
-    def get_total(self) -> int:
-        return len(self._devices)
-
-    def get_free_device(self) -> Device | None:
-        for dev in self._devices:
-            if dev.is_busy:
-                continue
-            return dev
-        return None
-
-    def free_busy_device(self, device: Device):
-        if device not in self._device_map:
-            return
-        self._device_map[device] = WorkStatus.Free
