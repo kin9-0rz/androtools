@@ -1,9 +1,11 @@
 # 夜神模拟器
 import shutil
-from time import sleep
+import time
+from typing import Callable
 
 import psutil
 
+from androtools.android_sdk.platform_tools import AdbRunner
 from androtools.cmd.result import CmdResult
 from androtools.core.device import Device, DeviceConsole, DeviceInfo
 
@@ -14,20 +16,20 @@ class NoxConsole(DeviceConsole):
 
     def launch_device(self, idx: int | str):
         self._run(["launch", f"-index:{idx}"])
-        sleep(3)
+        time.sleep(3)
 
     def reboot_device(self, idx: int | str):
         self._run(["reboot", f"-index:{idx}"])
-        sleep(3)
+        time.sleep(3)
 
     def quit_device(self, idx: int | str):
         self._run(["quit", f"-index:{idx}"])
-        sleep(3)
+        time.sleep(3)
 
     def quit_all_devices(self):
         """关闭所有的模拟器"""
         self._run(["quitall"])
-        sleep(3)
+        time.sleep(3)
 
     def list_devices(self) -> str:
         """列出所有模拟器信息
@@ -69,13 +71,13 @@ class NoxConsole(DeviceConsole):
     # runapp <-name:nox_name | -index:nox_index> -packagename:<apk_package_name>
     def run_app(self, idx: int | str, package: str):
         self._run(["runapp", f"-index:{idx}", f"-packagename:{package}"])
-        sleep(3)
+        time.sleep(3)
         return True
 
     # killapp <-name:nox_name | -index:nox_index> -packagename:<apk_package_name>
     def kill_app(self, idx: int | str, package: str):
         self._run(["killapp", f"-index:{idx}", f"-packagename:{package}"])
-        sleep(3)
+        time.sleep(3)
 
     # adb <-name:nox_name | -index:nox_index>  -command:<cmd>
     def adb(self, idx: int | str, cmd: str | list):
@@ -104,12 +106,18 @@ class NoxPlayerInfo(DeviceInfo):
 
 
 class NoxPlayer(Device):
-    def __init__(self, info: DeviceInfo) -> None:
-        super().__init__(info)
+    def __init__(
+        self,
+        info: DeviceInfo,
+        adb: AdbRunner | None = None,
+        sleeper: Callable[[float], None] = time.sleep,
+        console: NoxConsole | None = None,
+    ) -> None:
+        super().__init__(info, adb=adb, sleeper=sleeper)
 
         self.index = info.index
         self.name = info.name
-        self.nox_console = NoxConsole(info.console_path)
+        self.nox_console = NoxConsole(info.console_path) if console is None else console
 
         self.pid = -1
         """Nox.exe"""
@@ -140,13 +148,13 @@ class NoxPlayer(Device):
     def launch(self):
         self.nox_console.launch_device(self.index)
         while True:
-            sleep(1)
+            self._sleep(1)
             if self.is_boot():
                 break
 
     def close(self):
         self.nox_console.quit_device(self.index)
-        sleep(5)
+        self._sleep(5)
         self._kill_self()
 
     def _kill_self(self):
@@ -197,7 +205,7 @@ class NoxPlayer(Device):
                 break
 
             self._adb_wrapper.run_cmd(["devices", "-l"])
-            sleep(1)
+            self._sleep(1)
 
         while True:
             serial = None
@@ -216,7 +224,7 @@ class NoxPlayer(Device):
                 serial = None
 
             if serial is None:
-                sleep(3)
+                self._sleep(3)
                 continue
 
             self.info.serial = serial

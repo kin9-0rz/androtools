@@ -4,13 +4,13 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from typing import Literal, Sequence
+from typing import Callable, Literal, Sequence
 
 import psutil
 from func_timeout import FunctionTimedOut, func_timeout
 
 from androtools import logger
-from androtools.android_sdk.platform_tools import ADB
+from androtools.android_sdk.platform_tools import ADB, AdbRunner
 from androtools.cmd import CMD
 from androtools.cmd.result import CmdResult
 from androtools.core.constants import Android_API_MAP, KeyEvent
@@ -119,11 +119,27 @@ class DeviceConsole(CMD):
 
 
 class Device(ABC):
-    # FIXME 定义接口，不要具体的实现
-    def __init__(self, info: DeviceInfo) -> None:
+    # FIXME 这里仍然混着 interface 和具体实现。adb 与时间的注入已经做掉，
+    # 但生命周期状态机本身仍留在这个 ABC 里，而不是藏在单独的实现后面。
+    def __init__(
+        self,
+        info: DeviceInfo,
+        adb: AdbRunner | None = None,
+        sleeper: Callable[[float], None] = time.sleep,
+    ) -> None:
+        """adb 和时间都是依赖，不是自己造出来的。
+
+        Args:
+            info: Device 的身份信息。
+            adb: AdbRunner 的 adapter。默认按 info.adb_path 自建真实 ADB；
+                传入 FakeADB 即可在没有模拟器的情况下驱动生命周期逻辑。
+            sleeper: 等待函数。默认 time.sleep；测试传 lambda _: None 即可
+                让启动/重试流程瞬间跑完。
+        """
         self.info = info
         self.name = info.name
-        self._adb_wrapper: ADB = ADB(info.adb_path)
+        self._adb_wrapper: AdbRunner = ADB(info.adb_path) if adb is None else adb
+        self._sleep = sleeper
         self.android_version = info.version
         self.sdk = None
         self.status = DeviceStatus.STOP
@@ -150,7 +166,7 @@ class Device(ABC):
         self._is_busy = value
 
     @property
-    def adb_wrapper(self) -> ADB:
+    def adb_wrapper(self) -> AdbRunner:
         return self._adb_wrapper
 
     def get_android_version(self):
@@ -186,13 +202,8 @@ class Device(ABC):
         """判断模拟器是否超时，命令执行超时，说明模拟器已经卡死，需要重启"""
         try:
             assert self.info.serial is not None
-            # 执行 adb 命令，不显示输出， 设置 3 秒超时
-            subprocess.run(
-                [self.info.adb_path, "-s", self.info.serial, "shell", "ps"],
-                timeout=seconds,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
+            # 执行 adb 命令，设置超时时间
+            self.adb(["shell", "ps"], timeout=seconds)
         except subprocess.TimeoutExpired:
             return True
         return False
@@ -209,7 +220,7 @@ class Device(ABC):
 
     def reboot(self):
         self.close()
-        time.sleep(10)
+        self._sleep(10)
         self.launch()
 
     def launch_and_wait_for_device(self):
@@ -221,10 +232,10 @@ class Device(ABC):
         if not self.is_boot():
             logger.debug(f"启动设备 {self.name}")
             self.launch()
-            time.sleep(30)
+            self._sleep(30)
 
             while True:
-                time.sleep(5)
+                self._sleep(5)
                 if self.is_boot():
                     break
 
@@ -238,7 +249,7 @@ class Device(ABC):
         counter = 0
         while True:
             counter += 1
-            time.sleep(6)
+            self._sleep(6)
 
             status = self.get_status()
             if status == DeviceStatus.BOOT_COMPLETED:
@@ -266,7 +277,7 @@ class Device(ABC):
 
         # 刷新模拟器的状态
         self.reconnect()
-        time.sleep(3)
+        self._sleep(3)
 
         self.adb(["get-state"])
         result = self.adb(["get-state"])
@@ -275,7 +286,7 @@ class Device(ABC):
             # error: device 'emulator-5556' not found
             # 再次确认
             self.reconnect()
-            time.sleep(5)
+            self._sleep(5)
             result = self.adb(["get-state"])
             if result.contain("not found"):
                 status = DeviceStatus.ERORR

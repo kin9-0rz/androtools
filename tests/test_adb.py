@@ -1,6 +1,8 @@
 import pytest
 from androtools.android_sdk.platform_tools import ADB
 
+pytestmark = pytest.mark.integration
+
 
 @pytest.fixture
 def adb():
@@ -14,10 +16,9 @@ def test_run_cmd(adb):
 
 
 def test_run_shell_cmd(adb: ADB):
-    # output, err = adb.run_shell_cmd(None, ["ps"])
     result = adb.run_shell_cmd(["ps"])
     if result.contain("more than one device/emulator"):
-        return
+        pytest.skip("adb 上连接了多个设备，get-state 语义不明确")
     assert result.contain("zygote")
 
 

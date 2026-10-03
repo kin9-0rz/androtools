@@ -1,10 +1,12 @@
 import shutil
 from enum import Enum
 from time import sleep
+from typing import Protocol
 
 import psutil
 
 from androtools.cmd import CMD
+from androtools.cmd.result import CmdResult
 from androtools import logger
 
 
@@ -16,6 +18,32 @@ class DeviceType(Enum):
 
 class DeviceOfflineError(Exception):
     pass
+
+
+class AdbRunner(Protocol):
+    """执行 adb 命令的 interface，Device 的生命周期逻辑全走这个 seam。
+
+    seam 放在 Device 层而不是 CMD 层：CMD._run 是所有外部命令（aapt2、
+    avdmanager、fastboot、厂商控制台）的唯一执行点，把 seam 开在那里要动 7 个
+    子类，而其中多数无人使用、无法验证。开在这里则 ADB 天然满足 interface，
+    真实实现与 FakeADB 两个 adapter 就足以让 seam 成立。
+
+    serial 保留在 interface 上是有意的：它对绝大多数调用是同一个值，但夜神
+    模拟器在启动过程中会改写 DeviceInfo.serial，测试和调用方都需要看到
+    「当前用的是哪个 serial」。
+    """
+
+    def run_cmd(
+        self, cmd: list[str], serial: str | None = None, timeout: int = 30
+    ) -> CmdResult: ...
+
+    def run_shell_cmd(
+        self, cmd: list[str], serial: str | None = None, timeout: int = 30
+    ) -> CmdResult: ...
+
+    def run_shell_cmd_daemon(
+        self, cmd: list[str], serial: str | None = None
+    ) -> None: ...
 
 
 class ADB(CMD):

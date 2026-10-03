@@ -5,7 +5,7 @@ from androtools.android_sdk.avdmanager import AVDManager, CreateAVD
 
 fixtures_path = os.path.join(os.path.dirname(__file__), "fixtures")
 
-is_err = False
+pytestmark = pytest.mark.integration
 
 
 @pytest.fixture
@@ -18,22 +18,17 @@ def is_ok():
 
     error = ca.run().error
     if "Error: Package path is not valid." in error:
-        return False
+        pytest.skip(f"本机没有 test 用的 system image：{error.strip()}")
     return True
 
 
 def test_list_avd(is_ok):
-    if not is_ok:
-        return
     am = AVDManager()
     result = am.list_avd().output
     assert "test" in result
 
 
 def test_delete_avd(is_ok):
-    if not is_ok:
-        return
-
     am = AVDManager()
     result = am.delete_avd("test").output
     assert "deleted" in result

@@ -1,6 +1,8 @@
 import pytest
 from androtools.android_sdk.emulator import Emulator
 
+pytestmark = pytest.mark.integration
+
 
 @pytest.fixture
 def emu() -> Emulator:

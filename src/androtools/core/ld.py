@@ -1,10 +1,12 @@
 # 雷电模拟器
 import shutil
-from time import sleep
+import time
+from typing import Callable
 
 import psutil
 
 from androtools import logger
+from androtools.android_sdk.platform_tools import AdbRunner
 from androtools.cmd import CMD
 from androtools.cmd.result import CmdResult
 from androtools.core.device import Device, DeviceInfo
@@ -120,11 +122,17 @@ def find_adb():
 class LDPlayer(Device):
     """雷电模拟器"""
 
-    def __init__(self, info: DeviceInfo) -> None:
-        super().__init__(info)
+    def __init__(
+        self,
+        info: DeviceInfo,
+        adb: AdbRunner | None = None,
+        sleeper: Callable[[float], None] = time.sleep,
+        console: LDConsole | None = None,
+    ) -> None:
+        super().__init__(info, adb=adb, sleeper=sleeper)
         self.index = info.index
         self.name = info.name
-        self.ldconsole = LDConsole(info.console_path)
+        self.ldconsole = LDConsole(info.console_path) if console is None else console
         self.pid = -1
         self.vbox_pid = -1
 
@@ -143,7 +151,7 @@ class LDPlayer(Device):
 
         # 启动 com.android.settings
         self.adb_shell(["am", "start", "com.android.settings"])
-        sleep(3)
+        self._sleep(3)
         # dumpsys window windows | grep mCurrentFocus
         result = self.adb_shell(
             ["dumpsys", "window", "windows", "|", "grep", "mCurrentFocus"]
@@ -184,16 +192,16 @@ class LDPlayer(Device):
 
         while True:
             self.ldconsole.launch_device(self.info.index)
-            sleep(10)
+            self._sleep(10)
             if self.is_boot():
                 break
 
             self.close()
-            sleep(10)
+            self._sleep(10)
 
     def close(self):
         self.ldconsole.quit_device(self.index)
-        sleep(5)
+        self._sleep(5)
 
     def getprop(self, prop: str | None = None):
         return self.ldconsole.getprop(self.index, prop)

@@ -18,6 +18,13 @@ dev = [
 [project.scripts]
 androtools = "androtools.__main__:main"
 
+[tool.pytest.ini_options]
+markers = [
+    "integration: 需要真实 Android SDK 或已连接的设备",
+]
+# 默认排除 integration：这些测试在没有 SDK 的机器上必然失败，会淹没单元测试的信号。
+# 命令行上再写一次 -m 会覆盖这里，所以 `pytest -m integration` 仍然可用。
+addopts = '-m "not integration"'
 
 [build-system]
 requires = ["uv_build>=0.9.17,<0.10.0"]
