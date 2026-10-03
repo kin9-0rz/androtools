@@ -253,24 +253,28 @@ def test_fake_adb_rejects_undeclared_command():
 
 
 class FakeLDConsole(LDConsole):
-    """只实现 LDPlayer 依赖的那几个方法；list2 的解析留在 LDConsole 自己身上。
+    """只替换 list_devices —— 那是 LDConsole 里唯一碰进程的地方。
 
+    get_pids 的列解析用真实实现，否则测的就不是我们改的那段代码了。
     故意不调 super().__init__：那会去 shutil.which 找 ldconsole.exe。
-    继承它只是为了保持类型标注诚实 —— Control Console 本身还不是一个真正的
-    interface，那是候选 3 的工作。
     """
 
     def __init__(self, rows):
         self.rows = rows
 
-    def get_pids(self, idx: int):
-        parts = self.rows[idx].split(",")
-        return int(parts[6]), int(parts[7])
+    def list_devices(self) -> str:
+        return "\n".join(self.rows)
 
 
-def ld_row(index, pid, vbox_pid):
-    # 0 索引, 1 标题, 2 顶层窗口句柄, 3 绑定窗口句柄, 4 运行状态, 5 进程ID, 6 VBox PID
-    return f"{index},title,0,0,1,-1,{pid},{vbox_pid}"
+def ld_row(index, pid, vbox_pid, width=540, height=960, dpi=240):
+    """ldconsole list2 的真实列序（10 列），对照 D:\\ProgramFiles\\LDPlayer9.0.79.2 实测：
+
+        0,雷电模拟器,0,0,0,-1,-1,540,960,240
+         0    1    2 3 4  5  6  7  8  9
+
+    5 = 进程 PID，6 = VBox 进程 PID，7/8 = 分辨率宽高，9 = dpi。
+    """
+    return f"{index},雷电模拟器,0,0,1,{pid},{vbox_pid},{width},{height},{dpi}"
 
 
 def test_ld_is_boot_requires_both_pids():
@@ -283,13 +287,36 @@ def test_ld_is_boot_requires_both_pids():
     assert dev.get_vbox_pid() == 2222
 
 
+def test_ld_pids_come_from_the_right_columns():
+    """回归测试：PID 曾经被从第 6、7 列读，第 7 列其实是屏幕宽度。
+
+    旧代码因此把 540（宽度）当成 VBox PID，「两个 PID 都存在」这个判断
+    实际上只检查了 VBox 进程，界面进程死掉时也会判定为已启动。
+    """
+    console = FakeLDConsole([ld_row(0, 1111, 2222, width=540)])
+    dev = LDPlayer(make_info(index="0"), adb=FakeADB(), console=console)
+
+    dev.is_boot()
+
+    assert dev.get_pid() == 1111  # 第 5 列
+    assert dev.get_vbox_pid() == 2222  # 第 6 列，不是 540
+
+
 def test_ld_is_boot_false_when_vbox_pid_missing():
     console = FakeLDConsole([ld_row(0, 1111, -1)])
     dev = LDPlayer(make_info(index="0"), adb=FakeADB(), console=console)
 
     assert dev.is_boot() is False
-    assert dev.get_pid() == 1111
     assert dev.get_vbox_pid() == -1
+
+
+def test_ld_is_boot_false_when_ui_pid_missing():
+    """界面进程死了但 VM 还活着 —— 这正是「半启动」，必须判为未启动。"""
+    console = FakeLDConsole([ld_row(0, -1, 2222)])
+    dev = LDPlayer(make_info(index="0"), adb=FakeADB(), console=console)
+
+    assert dev.is_boot() is False
+    assert dev.get_pid() == -1
 
 
 class FakeNoxConsole(NoxConsole):
@@ -313,42 +340,31 @@ def nox_row(index, nox_pid, vm_pid):
     return f"{index},name,title,0,{nox_pid},{vm_pid}"
 
 
-def test_nox_is_boot_true():
-    console = FakeNoxConsole([nox_row(1, 3333, 4444)])
-    dev = NoxPlayer(make_info(index="1"), adb=FakeADB(), console=console)
+def test_nox_is_boot_reads_both_pids_in_the_right_columns():
+    """回归测试：pid / vm_pid 曾经被装反，且 vm_pid 是 str。
 
-    assert dev.is_boot() is True
-
-
-def test_nox_is_boot_swaps_pid_and_vm_pid():
-    """锁住现状：NoxPlayer.is_boot() 把 Nox.exe 和 NoxVMHandle.exe 的 PID 装反了。
-
-    最后一列是 NoxVMHandle.exe（与 adb 通信的 VM 进程），但代码把它写进 self.pid，
-    而把前面的 Nox.exe（界面进程）写进 self.vm_pid。后果是 get_serial() 拿
-    self.vm_pid 去查监听端口，查的是界面进程的端口。
-
-    本次不修 —— 只让它显形。修复时这两个断言就是回归测试。
+    Console 最后一列是 NoxVMHandle.exe（与 adb 通信的 VM 进程），倒数第二列是
+    Nox.exe（界面进程）。旧代码把最后一列写进 self.pid、把 Nox.exe 写进
+    self.vm_pid，且存成 str —— 而 get_serial() 拿 vm_pid 和 psutil 返回的 int
+    pid 比较，str 永远比不相等，那个 while 循环出不来。
     """
     console = FakeNoxConsole([nox_row(1, 3333, 4444)])
     dev = NoxPlayer(make_info(index="1"), adb=FakeADB(), console=console)
 
     dev.is_boot()
 
-    assert dev.pid == 4444  # 实际是 NoxVMHandle.exe 的 PID
-    assert dev.vm_pid == "3333"  # 实际是 Nox.exe 的 PID，且是 str
+    assert dev.get_pid() == 3333  # Nox.exe，界面进程
+    assert dev.vm_pid == 4444  # NoxVMHandle.exe，VM 进程
 
 
-def test_nox_get_pid_is_broken():
-    """锁住现状：NoxPlayer.get_pid() 被覆写成恒返回 -1，即使设备已启动。
-
-    基类 Device.get_pid() 返回 self.pid。夜神这个覆写让任何依赖 get_pid()
-    的调用方拿到错误答案 —— 本次不修，只让它显形。
-    """
+def test_nox_vm_pid_is_an_int():
+    """vm_pid 必须是 int，否则 get_serial() 里 psutil 的 pid 比较恒为 False。"""
     console = FakeNoxConsole([nox_row(1, 3333, 4444)])
     dev = NoxPlayer(make_info(index="1"), adb=FakeADB(), console=console)
+
     dev.is_boot()
 
-    assert dev.get_pid() == -1
+    assert isinstance(dev.vm_pid, int)
 
 
 def test_nox_is_boot_skips_stopped_instances():
@@ -357,7 +373,8 @@ def test_nox_is_boot_skips_stopped_instances():
     dev = NoxPlayer(make_info(index="2"), adb=FakeADB(), console=console)
 
     assert dev.is_boot() is True
-    assert dev.pid == 6666
+    assert dev.get_pid() == 5555
+    assert dev.vm_pid == 6666
 
 
 def test_nox_is_boot_false_when_all_stopped():

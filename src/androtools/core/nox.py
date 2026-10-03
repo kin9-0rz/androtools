@@ -120,27 +120,28 @@ class NoxPlayer(Device):
         self.nox_console = NoxConsole(info.console_path) if console is None else console
 
         self.pid = -1
-        """Nox.exe"""
+        """Nox.exe，模拟器界面进程"""
         self.vm_pid = -1
-        """NoxVMHandle.exe"""
-
-    def get_pid(self) -> int:
-        return -1
+        """NoxVMHandle.exe，负责与 adb 通信的 VM 进程"""
 
     def is_boot(self):
-        """判断模拟器是否启动"""
+        """判断模拟器是否启动
+
+        Console 每一行的列序：索引,名称,标题,工具栏句柄,Nox.exe PID,NoxVMHandle PID
+        """
         r = self.nox_console.list_devices().strip()
         for line in r.split("\n"):
             parts = line.split(",")
 
-            pid = parts[-1]
-            if pid == "-1":
+            vm_pid = parts[-1]
+            if vm_pid == "-1":
                 continue
 
             index = parts[0]
             if index == self.index:
-                self.pid = int(pid)
-                self.vm_pid = parts[-2]
+                self.pid = int(parts[-2])
+                # 必须是 int：get_serial() 拿它和 psutil 给的 pid 比较，str 永远比不相等
+                self.vm_pid = int(vm_pid)
                 return True
 
         return False

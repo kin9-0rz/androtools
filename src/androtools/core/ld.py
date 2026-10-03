@@ -43,8 +43,8 @@ class LDConsole(CMD):
         line = lines[idx]
         parts = line.split(",")
 
-        pid = int(parts[6])
-        vbox_pid = int(parts[7])
+        pid = int(parts[5])
+        vbox_pid = int(parts[6])
         return pid, vbox_pid
 
     def launch_device(self, idx: int | str):
