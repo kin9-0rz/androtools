@@ -148,18 +148,29 @@ def test_get_status_error_when_input_keyevent_raises():
     assert dev.get_status() == DeviceStatus.ERORR
 
 
-def test_get_status_calls_get_state_twice_and_discards_the_first():
-    """锁住现状：get_status 连续调两次 get-state，第一次的结果被丢弃。
+def test_get_status_queries_get_state_once_when_answered():
+    """回归测试：get_status 曾经无条件连调两次 get-state，且第一次的结果被丢弃。
 
-    这是 Device.get_status() 里的一处多余调用，不在本次修正范围内 ——
-    锁住它是为了让将来的清理有一个明确的起点，而不是让它继续隐身。
+    启动流程里 get_status 最多被调 11 次，每次多一次 adb 往返。
     """
     dev, adb = make_device(booting_responses("device"))
     dev.pid = 100
 
     dev.get_status()
 
+    assert adb.count(*GET_STATE) == 1
+
+
+def test_get_status_retries_get_state_after_not_found():
+    """"not found" 时 reconnect 之后重试一次 —— 这一段是有意保留的。"""
+    responses = booting_responses()
+    responses[GET_STATE] = CmdResult("", "device 'emulator-5556' not found")
+    dev, adb = make_device(responses)
+    dev.pid = 100
+
+    assert dev.get_status() == DeviceStatus.ERORR
     assert adb.count(*GET_STATE) == 2
+    assert adb.count(*RECONNECT) == 2
 
 
 # --------------------------------------------------------------------------- #
@@ -191,6 +202,8 @@ def test_launch_and_wait_gives_up_after_the_retry_budget():
     assert dev.launch_and_wait_for_device() is False
     assert dev.close_count == 1
     assert dev.status == DeviceStatus.STOP
+    # 首次探测 + 11 次重试。修复 get_state 重复调用之前，这里是 24 次 adb 往返。
+    assert adb.count(*GET_STATE) == 12
 
 
 # --------------------------------------------------------------------------- #

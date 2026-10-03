@@ -279,7 +279,6 @@ class Device(ABC):
         self.reconnect()
         self._sleep(3)
 
-        self.adb(["get-state"])
         result = self.adb(["get-state"])
         if result.contain("not found"):
             # NOTE: adb 执行的速度太快可能会导致 not found
