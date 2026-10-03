@@ -11,7 +11,7 @@
 _Avoid_: 模拟器（模拟器只是 Device 的一种宿主形态）、设备类型
 
 **Emulator**:
-由第三方应用提供的 Android 虚拟设备宿主程序（雷电、夜神、Android Studio AVD）。用户在宿主机上手动安装并启动它；它启动之后，在本库眼中就只是一个 Device。
+由第三方应用提供的 Android 虚拟设备宿主程序（雷电、夜神）。用户在宿主机上手动安装并启动它；它启动之后，在本库眼中就只是一个 Device —— 和真机没有区别。
 _Avoid_: Device、模拟器实例
 
 **Emulator Vendor**:
