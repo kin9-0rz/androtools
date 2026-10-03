@@ -26,10 +26,15 @@ class NoxConsole(DeviceConsole):
         self._run(["quit", f"-index:{idx}"])
         time.sleep(3)
 
-    def quit_all_devices(self):
-        """关闭所有的模拟器"""
-        self._run(["quitall"])
-        time.sleep(3)
+    def get_pids(self, idx: int | str) -> tuple[int, int]:
+        """按 list 的列序取 PID：倒数第二列是 Nox.exe，倒数最后一列是 NoxVMHandle.exe。"""
+        for line in self.list_devices().strip().split("\n"):
+            parts = line.split(",")
+            if parts[0] != str(idx):
+                continue
+            return int(parts[-2]), int(parts[-1])
+
+        return -1, -1
 
     def list_devices(self) -> str:
         """列出所有模拟器信息
@@ -124,27 +129,12 @@ class NoxPlayer(Device):
         self.vm_pid = -1
         """NoxVMHandle.exe，负责与 adb 通信的 VM 进程"""
 
-    def is_boot(self):
-        """判断模拟器是否启动
-
-        Console 每一行的列序：索引,名称,标题,工具栏句柄,Nox.exe PID,NoxVMHandle PID
-        """
-        r = self.nox_console.list_devices().strip()
-        for line in r.split("\n"):
-            parts = line.split(",")
-
-            vm_pid = parts[-1]
-            if vm_pid == "-1":
-                continue
-
-            index = parts[0]
-            if index == self.index:
-                self.pid = int(parts[-2])
-                # 必须是 int：get_serial() 拿它和 psutil 给的 pid 比较，str 永远比不相等
-                self.vm_pid = int(vm_pid)
-                return True
-
-        return False
+    def is_boot(self) -> bool:
+        """判断模拟器是否启动：界面进程和 VM 进程都要在。"""
+        pid, vm_pid = self.nox_console.get_pids(self.index)
+        self.pid = pid
+        self.vm_pid = vm_pid
+        return self.pid != -1 and self.vm_pid != -1
 
     def launch(self):
         self.nox_console.launch_device(self.index)

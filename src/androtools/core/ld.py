@@ -7,12 +7,11 @@ import psutil
 
 from androtools import logger
 from androtools.android_sdk.platform_tools import AdbRunner
-from androtools.cmd import CMD
 from androtools.cmd.result import CmdResult
-from androtools.core.device import Device, DeviceInfo
+from androtools.core.device import Device, DeviceConsole, DeviceInfo
 
 
-class LDConsole(CMD):
+class LDConsole(DeviceConsole):
     """使用 ldconsole.exe 对模拟器进行管理"""
 
     def __init__(self, path=shutil.which("ldconsole.exe")):
@@ -37,11 +36,11 @@ class LDConsole(CMD):
         """
         return self._run(["list2"]).output
 
-    def get_pids(self, idx: int):
+    def get_pids(self, idx: int | str) -> tuple[int, int]:
+        """按 list2 的列序取 PID：第 5 列是进程 PID，第 6 列是 VBox 进程 PID。"""
         output = self.list_devices()
         lines = output.splitlines()
-        line = lines[idx]
-        parts = line.split(",")
+        parts = lines[int(idx)].split(",")
 
         pid = int(parts[5])
         vbox_pid = int(parts[6])
@@ -96,9 +95,6 @@ class LDConsole(CMD):
 
     def quit_device(self, idx: int | str):
         return self._run(["quit", "--index", str(idx)])
-
-    def quit_all_devices(self):
-        return self._run(["quit-all"])
 
     def adb(self, idx, cmd: str | list, encoding: str | None = None):
         if isinstance(cmd, list):

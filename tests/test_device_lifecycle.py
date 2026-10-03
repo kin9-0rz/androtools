@@ -15,7 +15,13 @@ import pytest
 
 from androtools.android_sdk.platform_tools import DeviceOfflineError
 from androtools.cmd.result import CmdResult
-from androtools.core.device import Device, DeviceInfo, DeviceStatus, DeviceType
+from androtools.core.device import (
+    Device,
+    DeviceConsole,
+    DeviceInfo,
+    DeviceStatus,
+    DeviceType,
+)
 from androtools.core.ld import LDConsole, LDPlayer
 from androtools.core.nox import NoxConsole, NoxPlayer
 from androtools.testing import FakeADB
@@ -351,6 +357,37 @@ def nox_row(index, nox_pid, vm_pid):
     注意最后一列是 NoxVMHandle.exe —— 即与 adb 通信的那个 VM 进程。
     """
     return f"{index},name,title,0,{nox_pid},{vm_pid}"
+
+
+def test_both_consoles_satisfy_the_same_interface():
+    """雷电和夜神是同一个 interface 上的两个 adapter，且都不再有 abstract 残留。"""
+    assert issubclass(LDConsole, DeviceConsole)
+    assert issubclass(NoxConsole, DeviceConsole)
+    assert LDConsole.__abstractmethods__ == frozenset()
+    assert NoxConsole.__abstractmethods__ == frozenset()
+
+
+def test_device_console_rejects_incomplete_adapter():
+    """回归测试：DeviceConsole 曾经没继承 ABC，@abstractmethod 完全不生效。"""
+
+    class HalfConsole(DeviceConsole):
+        def launch_device(self, idx):
+            pass
+
+    with pytest.raises(TypeError):
+        HalfConsole("ldconsole")  # type: ignore[abstract]
+
+
+def test_nox_get_pids_returns_minus_one_for_unknown_index():
+    console = FakeNoxConsole([nox_row(1, 3333, 4444)])
+
+    assert console.get_pids("9") == (-1, -1)
+
+
+def test_nox_get_pids_returns_minus_one_when_stopped():
+    console = FakeNoxConsole([nox_row(1, -1, -1)])
+
+    assert console.get_pids("1") == (-1, -1)
 
 
 def test_nox_is_boot_reads_both_pids_in_the_right_columns():

@@ -84,33 +84,35 @@ class DeviceStatus(Enum):
         raise Exception("未知状态")
 
 
-class DeviceConsole(CMD):
-    """模拟器控制台，用于控制模拟器的启动和关闭。"""
+class DeviceConsole(CMD, ABC):
+    """模拟器控制台：启动、关闭、重启模拟器，以及读取它们的 PID。
+
+    厂商的命令行方言（雷电的 `--index N`、夜神的 `-index:N`，各自不同的 PID
+    列位置）止步于这个 interface 后面 —— Device 的子类不应该知道这些。
+
+    这里只放 Device 真正需要的东西。厂商特有的能力（getprop、locate、
+    install_app 等）留在具体 console 上，不进 interface。
+    """
 
     @abstractmethod
-    def launch_device(self, idx: int | str):
+    def launch_device(self, idx: int | str) -> CmdResult | None:
         """启动模拟器"""
-        pass
 
     @abstractmethod
-    def reboot_device(self, idx: int | str):
+    def reboot_device(self, idx: int | str) -> CmdResult | None:
         """重启模拟器"""
-        pass
 
     @abstractmethod
-    def quit_device(self, idx: int | str):
+    def quit_device(self, idx: int | str) -> CmdResult | None:
         """关闭模拟器"""
-        pass
 
     @abstractmethod
-    def quit_all_devices(self):
-        """关闭所有的模拟器"""
-        pass
+    def get_pids(self, idx: int | str) -> tuple[int, int]:
+        """返回 (界面进程 PID, VM 进程 PID)；该实例未运行时为 (-1, -1)
 
-    @abstractmethod
-    def list_devices(self) -> str:
-        """列出所有模拟器信息"""
-        pass
+        界面进程和 VM 进程是两个不同的进程，判断模拟器是否**完全**启动需要
+        两者同时存在。
+        """
 
 
 class Device(ABC):
