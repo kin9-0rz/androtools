@@ -11,9 +11,15 @@ dependencies = ["func-timeout>=4.3.5", "loguru>=0.7.3", "psutil>=7.1.3"]
 
 [dependency-groups]
 dev = [
+    "mypy>=1.18.2",
     "pytest>=9.0.2",
     "twine>=6.2.0",
 ]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["src/androtools"]
+ignore_missing_imports = true
 
 [project.scripts]
 androtools = "androtools.__main__:main"

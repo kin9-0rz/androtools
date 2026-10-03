@@ -1,4 +1,4 @@
-"""Device 生命周期状态机的 characterization tests。
+"""模拟器生命周期状态机的 characterization tests。
 
 只锁真正有 implementation 的部分：状态判定、启动等待、卡死探测、厂商 PID 解析。
 像 tap / install_app 这类把参数拼成 adb 命令的一行包装不锁 —— 它们是 pass-through，
@@ -16,7 +16,6 @@ import pytest
 from androtools.android_sdk.platform_tools import DeviceOfflineError
 from androtools.cmd.result import CmdResult
 from androtools.core.device import (
-    Device,
     DeviceConsole,
     DeviceInfo,
     DeviceStatus,
@@ -24,11 +23,13 @@ from androtools.core.device import (
 )
 from androtools.core.ld import LDConsole, LDPlayer
 from androtools.core.nox import NoxConsole, NoxPlayer
+from androtools.core.session import EmulatorSession
+from androtools.core.shell import AndroidShell
 from androtools.testing import FakeADB
 
 SERIAL = "127.0.0.1:5555"
 
-# Device.get_status() 内部用的四条命令
+# EmulatorSession.get_status() 内部用的四条命令
 RECONNECT = ("reconnect",)
 GET_STATE = ("get-state",)
 BOOT_COMPLETED = ("getprop", "sys.boot_completed")
@@ -52,11 +53,11 @@ def make_info(**overrides) -> DeviceInfo:
     return DeviceInfo(**fields)
 
 
-class FakePlayer(Device):
-    """Device 的最小 concrete 实现，用来驱动基类的生命周期逻辑。
+class FakePlayer(EmulatorSession):
+    """EmulatorSession 的最小 concrete 实现，用来驱动生命周期逻辑。
 
     基类的 is_boot() 就是 `self.pid != -1`，所以控制 pid 就等于控制「是否已启动」，
-    不需要碰 Console。
+    不需要碰 Console —— session 的 interface 只有 launch / close 是抽象的。
     """
 
     def __init__(self, info, adb, sleeper=lambda _s: None):
@@ -73,12 +74,6 @@ class FakePlayer(Device):
 
     def close(self):
         self.close_count += 1
-
-    def install_app_by_console(self, apk_path: str) -> CmdResult:
-        return CmdResult("", "")
-
-    def uninstall_app_by_console(self, package_name: str) -> CmdResult:
-        return CmdResult("", "")
 
 
 def make_device(
@@ -180,32 +175,32 @@ def test_get_status_retries_get_state_after_not_found():
 
 
 # --------------------------------------------------------------------------- #
-# launch_and_wait_for_device()
+# ensure_ready()
 # --------------------------------------------------------------------------- #
 
 
-def test_launch_and_wait_returns_immediately_when_already_booted():
+def test_ensure_ready_returns_immediately_when_already_booted():
     dev, adb = make_device(booting_responses("device", boot_completed="1"))
     dev.pid = 100
 
-    assert dev.launch_and_wait_for_device() is True
+    assert dev.ensure_ready() is True
     assert dev.launch_count == 0
     assert dev.status == DeviceStatus.BOOT_COMPLETED
 
 
-def test_launch_and_wait_launches_when_not_booted():
+def test_ensure_ready_launches_when_not_booted():
     dev, adb = make_device(booting_responses("device", boot_completed="1"))
 
-    assert dev.launch_and_wait_for_device() is True
+    assert dev.ensure_ready() is True
     assert dev.launch_count == 1
 
 
-def test_launch_and_wait_gives_up_after_the_retry_budget():
+def test_ensure_ready_gives_up_after_the_retry_budget():
     """重试预算耗尽 -> 关掉设备，状态回到 STOP，返回 False。"""
     dev, adb = make_device(booting_responses("device", boot_completed="0"))
     dev.pid = 100
 
-    assert dev.launch_and_wait_for_device() is False
+    assert dev.ensure_ready() is False
     assert dev.close_count == 1
     assert dev.status == DeviceStatus.STOP
     # 首次探测 + 11 次重试。修复 get_state 重复调用之前，这里是 24 次 adb 往返。
@@ -234,15 +229,18 @@ def test_is_timeout_false_when_adb_answers():
     assert dev.is_timeout(seconds=3) is False
 
 
+class HangingShell(AndroidShell):
+    """home 键永远不返回 —— 模拟器已经卡死。"""
+
+    def home(self):
+        threading.Event().wait(30)
+
+
 def test_is_crashed_true_when_home_key_never_responds():
-    """is_crashed 用 5 秒的 func_timeout 包裹 home()，所以这个测试要真的等 5 秒。"""
-
-    class HangingPlayer(FakePlayer):
-        def home(self):
-            threading.Event().wait(30)
-
+    """is_crashed 用 5 秒的 func_timeout 包裹 shell.home()，所以这个测试要真的等 5 秒。"""
     adb = FakeADB()
-    dev = HangingPlayer(make_info(), adb)
+    dev = FakePlayer(make_info(), adb)
+    dev.shell = HangingShell(adb, dev.info)
 
     assert dev.is_crashed() is True
 
@@ -285,7 +283,7 @@ class FakeLDConsole(LDConsole):
         return "\n".join(self.rows)
 
 
-def ld_row(index, pid, vbox_pid, width=540, height=960, dpi=240):
+def ld_row(index, pid, vm_pid, width=540, height=960, dpi=240):
     """ldconsole list2 的真实列序（10 列），对照 D:\\ProgramFiles\\LDPlayer9.0.79.2 实测：
 
         0,雷电模拟器,0,0,0,-1,-1,540,960,240
@@ -293,7 +291,7 @@ def ld_row(index, pid, vbox_pid, width=540, height=960, dpi=240):
 
     5 = 进程 PID，6 = VBox 进程 PID，7/8 = 分辨率宽高，9 = dpi。
     """
-    return f"{index},雷电模拟器,0,0,1,{pid},{vbox_pid},{width},{height},{dpi}"
+    return f"{index},雷电模拟器,0,0,1,{pid},{vm_pid},{width},{height},{dpi}"
 
 
 def test_ld_is_boot_requires_both_pids():
@@ -303,7 +301,7 @@ def test_ld_is_boot_requires_both_pids():
 
     assert dev.is_boot() is True
     assert dev.get_pid() == 1111
-    assert dev.get_vbox_pid() == 2222
+    assert dev.vm_pid == 2222
 
 
 def test_ld_pids_come_from_the_right_columns():
@@ -318,15 +316,15 @@ def test_ld_pids_come_from_the_right_columns():
     dev.is_boot()
 
     assert dev.get_pid() == 1111  # 第 5 列
-    assert dev.get_vbox_pid() == 2222  # 第 6 列，不是 540
+    assert dev.vm_pid == 2222  # 第 6 列，不是 540
 
 
-def test_ld_is_boot_false_when_vbox_pid_missing():
+def test_ld_is_boot_false_when_vm_pid_missing():
     console = FakeLDConsole([ld_row(0, 1111, -1)])
     dev = LDPlayer(make_info(index="0"), adb=FakeADB(), console=console)
 
     assert dev.is_boot() is False
-    assert dev.get_vbox_pid() == -1
+    assert dev.vm_pid == -1
 
 
 def test_ld_is_boot_false_when_ui_pid_missing():

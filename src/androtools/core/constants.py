@@ -2,12 +2,6 @@
 # https://apilevels.com/
 from enum import Enum
 
-
-class DeviceState(Enum):
-    Free = 0
-    Busy = 1
-
-
 Android_API_MAP = {
     14: ("Android 4.0.1", "Ice Cream Sandwich"),
     15: ("Android 4.0.3", "Ice Cream Sandwich"),

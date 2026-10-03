@@ -3,12 +3,10 @@ import shutil
 import time
 from typing import Callable
 
-import psutil
-
 from androtools import logger
 from androtools.android_sdk.platform_tools import AdbRunner
-from androtools.cmd.result import CmdResult
-from androtools.core.device import Device, DeviceConsole, DeviceInfo
+from androtools.core.device import DeviceConsole, DeviceInfo
+from androtools.core.session import ConsoleSession
 
 
 class LDConsole(DeviceConsole):
@@ -17,7 +15,7 @@ class LDConsole(DeviceConsole):
     def __init__(self, path=shutil.which("ldconsole.exe")):
         super().__init__(path)
 
-    def list_devices(self):
+    def list_devices(self) -> str:
         """列出所有模拟器信息
 
         0. 索引
@@ -30,35 +28,32 @@ class LDConsole(DeviceConsole):
         7. 分辨率-宽
         8. 分辨率-高
         9. dpi
-
-        Returns:
-            _type_: _description_
         """
         return self._run(["list2"]).output
 
     def get_pids(self, idx: int | str) -> tuple[int, int]:
         """按 list2 的列序取 PID：第 5 列是进程 PID，第 6 列是 VBox 进程 PID。"""
-        output = self.list_devices()
-        lines = output.splitlines()
+        lines = self.list_devices().splitlines()
         parts = lines[int(idx)].split(",")
 
-        pid = int(parts[5])
-        vbox_pid = int(parts[6])
-        return pid, vbox_pid
+        return int(parts[5]), int(parts[6])
 
     def launch_device(self, idx: int | str):
         return self._run(["launch", "--index", str(idx)])
 
-    def is_running(self, idx: int | str):
-        r = self._run(["isrunning", "--index", str(idx)]).output
-        return r == "running"
+    def reboot_device(self, idx: int | str):
+        return self._run(["reboot", "--index", str(idx)])
+
+    def quit_device(self, idx: int | str):
+        return self._run(["quit", "--index", str(idx)])
+
+    def is_running(self, idx: int | str) -> bool:
+        return self._run(["isrunning", "--index", str(idx)]).output == "running"
 
     def getprop(self, idx: int | str, prop: str | None = None) -> str:
         if prop:
-            out = self._run(["getprop", "--index", str(idx), "--key", prop]).output
-        else:
-            out = self._run(["getprop", "--index", str(idx)]).output
-        return out
+            return self._run(["getprop", "--index", str(idx), "--key", prop]).output
+        return self._run(["getprop", "--index", str(idx)]).output
 
     # setprop <--name mnq_name | --index mnq_idx> --key <name> --value <val>
     def setprop(self, idx: int | str, prop: str, val: str):
@@ -77,45 +72,30 @@ class LDConsole(DeviceConsole):
         )
 
     # runapp <--name mnq_name | --index mnq_idx> --packagename <apk_package_name>
-    def run_app(self, idx: int | str, package_name: str):
-        return self._run(["runapp", "--index", str(idx), "--packagename", package_name])
+    def run_app(self, idx: int | str, package: str) -> bool:
+        self._run(["runapp", "--index", str(idx), "--packagename", package])
+        return True
 
     # killapp <--name mnq_name | --index mnq_idx> --packagename <apk_package_name>
-    def kill_app(self, idx: int | str, package_name: str):
-        return self._run(
-            ["killapp", "--index", str(idx), "--packagename", package_name]
-        )
+    def kill_app(self, idx: int | str, package: str) -> None:
+        self._run(["killapp", "--index", str(idx), "--packagename", package])
 
     # locate <--name mnq_name | --index mnq_idx> --LLI <Lng,Lat>
     def locate(self, idx: int | str, lng: float, lat: float):
         return self._run(["locate", "--index", str(idx), "--LLI", f"{lng},{lat}"])
 
-    def reboot_device(self, idx: int | str):
-        return self._run(["reboot", "--index", str(idx)])
-
-    def quit_device(self, idx: int | str):
-        return self._run(["quit", "--index", str(idx)])
-
     def adb(self, idx, cmd: str | list, encoding: str | None = None):
         if isinstance(cmd, list):
             cmd = " ".join(cmd)
-        cmd = ["adb", "--index", str(idx), "--command", cmd]
-        return self._run(cmd, encoding=encoding)
+        return self._run(["adb", "--index", str(idx), "--command", cmd], encoding=encoding)
 
-    def adb_shell(self, idx, cmd: str, encoding: str | None = None):
+    def adb_shell(self, idx, cmd: str | list, encoding: str | None = None):
         if isinstance(cmd, list):
             cmd = " ".join(cmd)
         return self.adb(idx, f"shell {cmd}", encoding=encoding)
 
 
-def find_adb():
-    for process in psutil.process_iter():
-        if process.name() == "adb.exe":
-            return True
-    return False
-
-
-class LDPlayer(Device):
+class LDPlayer(ConsoleSession):
     """雷电模拟器"""
 
     def __init__(
@@ -125,20 +105,26 @@ class LDPlayer(Device):
         sleeper: Callable[[float], None] = time.sleep,
         console: LDConsole | None = None,
     ) -> None:
-        super().__init__(info, adb=adb, sleeper=sleeper)
-        self.index = info.index
-        self.name = info.name
-        self.ldconsole = LDConsole(info.console_path) if console is None else console
+        super().__init__(
+            info,
+            LDConsole(info.console_path) if console is None else console,
+            adb=adb,
+            sleeper=sleeper,
+        )
         self.pid = -1
-        self.vbox_pid = -1
+        """界面进程 PID"""
+        self.vm_pid = -1
+        """VBox 进程 PID —— 负责与 adb 通信的那个 VM 进程"""
 
-    def get_vbox_pid(self):
-        return self.vbox_pid
+    def is_boot(self) -> bool:
+        pid, vm_pid = self.console.get_pids(self.index)
+        self.pid = pid
+        self.vm_pid = vm_pid
 
-    def kill_app(self, package):
-        self.ldconsole.kill_app(self.index, package)
+        # 同时存在 PID，才表示完全启动。
+        return self.pid != -1 and self.vm_pid != -1
 
-    def is_crashed(self):
+    def is_crashed(self) -> bool:
         """
         判断模拟器是否没响应，如果没响应，则定义为模拟器崩溃
         需要判断设备崩溃吗？
@@ -146,27 +132,26 @@ class LDPlayer(Device):
         # NOTE - 注意：每个模拟器的情况不一样！
 
         # 启动 com.android.settings
-        self.adb_shell(["am", "start", "com.android.settings"])
+        self.shell.adb_shell(["am", "start", "com.android.settings"])
         self._sleep(3)
         # dumpsys window windows | grep mCurrentFocus
-        result = self.adb_shell(
+        result = self.shell.adb_shell(
             ["dumpsys", "window", "windows", "|", "grep", "mCurrentFocus"]
         )
 
-        # if "com.android.settings" not in out:
         if result.output_contain("com.android.settings"):
             logger.warning(f"[{self.name}] 无法启动设置，杀死系统界面，重新启动设置。")
-            self.kill_app("com.android.launcher3")
-            self.adb_shell(["am", "start", "com.android.settings"])
-            out = self.adb_shell(
+            self.shell.kill_app("com.android.launcher3")
+            self.shell.adb_shell(["am", "start", "com.android.settings"])
+            out = self.shell.adb_shell(
                 ["dumpsys", "window", "windows", "|", "grep", "mCurrentFocus"]
             ).output
             if "com.android.settings" not in out:
                 logger.warning(f"[{self.name}] 无法启动设置，可能需要重启模拟器。")
                 return True
 
-        self.home()
-        result = self.adb_shell(
+        self.shell.home()
+        result = self.shell.adb_shell(
             ["dumpsys", "window", "windows", "|", "grep", "mCurrentFocus"]
         )
         if result.output_contain("com.android.launcher3"):
@@ -174,20 +159,12 @@ class LDPlayer(Device):
             return True
         return False
 
-    def is_boot(self) -> bool:
-        pids = self.ldconsole.get_pids(int(self.index))
-        self.pid = pids[0]
-        self.vbox_pid = pids[1]
-
-        # 同时存在 PID，才表示完全启动。
-        return self.pid != -1 and self.vbox_pid != -1
-
-    def launch(self):
+    def launch(self) -> None:
         if self.is_boot():
             return
 
         while True:
-            self.ldconsole.launch_device(self.info.index)
+            self.console.launch_device(self.index)
             self._sleep(10)
             if self.is_boot():
                 break
@@ -195,30 +172,6 @@ class LDPlayer(Device):
             self.close()
             self._sleep(10)
 
-    def close(self):
-        self.ldconsole.quit_device(self.index)
+    def close(self) -> None:
+        self.console.quit_device(self.index)
         self._sleep(5)
-
-    def getprop(self, prop: str | None = None):
-        return self.ldconsole.getprop(self.index, prop)
-
-    def install_app_by_console(self, apk_path: str):
-        r = self.ldconsole.install_app(self.index, apk_path)
-        return r
-
-    def uninstall_app_by_console(self, package_name: str) -> CmdResult:
-        return self.ldconsole.uninstall_app(self.index, package_name)
-
-    def run_app(self, package):
-        self.ldconsole.run_app(self.index, package)
-        return True
-
-    def adb_by_console(self, cmd: str | list, encoding: str | None = None):
-        if isinstance(cmd, list):
-            cmd = " ".join(cmd)
-        return self.ldconsole.adb(self.index, cmd, encoding=encoding)
-
-    def adb_shell_by_console(self, cmd: str | list, encoding: str | None = None):
-        if isinstance(cmd, list):
-            cmd = " ".join(cmd)
-        return self.ldconsole.adb_shell(self.index, cmd, encoding=encoding)
