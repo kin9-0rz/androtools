@@ -5,7 +5,7 @@ from typing import Callable
 
 from androtools import logger
 from androtools.android_sdk.platform_tools import AdbRunner
-from androtools.core.device import DeviceConsole, DeviceInfo
+from androtools.core.device import DeviceConsole, DeviceInfo, Pids
 from androtools.core.session import ConsoleSession
 
 
@@ -31,12 +31,12 @@ class LDConsole(DeviceConsole):
         """
         return self._run(["list2"]).output
 
-    def get_pids(self, idx: int | str) -> tuple[int, int]:
-        """按 list2 的列序取 PID：第 5 列是进程 PID，第 6 列是 VBox 进程 PID。"""
+    def get_pids(self, idx: int | str) -> Pids:
+        """按 list2 的列序取 PID：第 5 列是界面进程，第 6 列是 VBox 进程。"""
         lines = self.list_devices().splitlines()
         parts = lines[int(idx)].split(",")
 
-        return int(parts[5]), int(parts[6])
+        return Pids(int(parts[5]), int(parts[6]))
 
     def launch_device(self, idx: int | str):
         return self._run(["launch", "--index", str(idx)])
@@ -117,11 +117,11 @@ class LDPlayer(ConsoleSession):
         """VBox 进程 PID —— 负责与 adb 通信的那个 VM 进程"""
 
     def is_boot(self) -> bool:
-        pid, vm_pid = self.console.get_pids(self.index)
-        self.pid = pid
-        self.vm_pid = vm_pid
+        pids = self.console.get_pids(self.index)
+        self.pid = pids.ui
+        self.vm_pid = pids.vm
 
-        # 同时存在 PID，才表示完全启动。
+        # 两个进程都在，才表示完全启动。
         return self.pid != -1 and self.vm_pid != -1
 
     def is_crashed(self) -> bool:

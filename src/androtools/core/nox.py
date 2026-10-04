@@ -6,7 +6,7 @@ from typing import Callable
 import psutil
 
 from androtools.android_sdk.platform_tools import AdbRunner
-from androtools.core.device import DeviceConsole, DeviceInfo
+from androtools.core.device import DeviceConsole, DeviceInfo, Pids
 from androtools.core.session import ConsoleSession
 
 
@@ -26,15 +26,15 @@ class NoxConsole(DeviceConsole):
         self._run(["quit", f"-index:{idx}"])
         time.sleep(3)
 
-    def get_pids(self, idx: int | str) -> tuple[int, int]:
+    def get_pids(self, idx: int | str) -> Pids:
         """按 list 的列序取 PID：倒数第二列是 Nox.exe，倒数最后一列是 NoxVMHandle.exe。"""
         for line in self.list_devices().strip().split("\n"):
             parts = line.split(",")
             if parts[0] != str(idx):
                 continue
-            return int(parts[-2]), int(parts[-1])
+            return Pids(int(parts[-2]), int(parts[-1]))
 
-        return -1, -1
+        return Pids(-1, -1)
 
     def list_devices(self) -> str:
         """列出所有模拟器信息
@@ -109,9 +109,9 @@ class NoxPlayer(ConsoleSession):
 
     def is_boot(self) -> bool:
         """判断模拟器是否启动：界面进程和 VM 进程都要在。"""
-        pid, vm_pid = self.console.get_pids(self.index)
-        self.pid = pid
-        self.vm_pid = vm_pid
+        pids = self.console.get_pids(self.index)
+        self.pid = pids.ui
+        self.vm_pid = pids.vm
         return self.pid != -1 and self.vm_pid != -1
 
     def launch(self) -> None:

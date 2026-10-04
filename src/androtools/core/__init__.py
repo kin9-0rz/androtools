@@ -4,6 +4,7 @@ from androtools.core.device import (
     DeviceInfo,
     DeviceStatus,
     DeviceType,
+    Pids,
 )
 from androtools.core.ld import LDConsole, LDPlayer
 from androtools.core.nox import NoxConsole, NoxPlayer
@@ -24,4 +25,5 @@ __all__ = [
     "LDPlayer",
     "NoxConsole",
     "NoxPlayer",
+    "Pids",
 ]

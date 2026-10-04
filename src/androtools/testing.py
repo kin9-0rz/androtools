@@ -8,6 +8,7 @@
 """
 
 import subprocess
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 from androtools.cmd.result import CmdResult
@@ -48,11 +49,11 @@ class FakeADB:
 
     def __init__(
         self,
-        responses: dict[tuple[str, ...], CmdResult | None] | None = None,
-        errors: dict[tuple[str, ...], BaseException] | None = None,
+        responses: Mapping[tuple[str, ...], CmdResult | None] | None = None,
+        errors: Mapping[tuple[str, ...], BaseException] | None = None,
     ) -> None:
-        self._responses = {tuple(k): v for k, v in (responses or {}).items()}
-        self._errors = {tuple(k): v for k, v in (errors or {}).items()}
+        self._responses = dict(responses or {})
+        self._errors = dict(errors or {})
         self.calls: list[AdbCall] = []
 
     def run_cmd(

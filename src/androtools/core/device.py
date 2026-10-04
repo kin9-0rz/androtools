@@ -1,9 +1,23 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
+from typing import NamedTuple
 
 from androtools.cmd import CMD
 from androtools.cmd.result import CmdResult
+
+
+class Pids(NamedTuple):
+    """一台模拟器的两个进程标识。
+
+    界面进程和 VM 进程是两个不同的进程，只看其中一个不足以判断模拟器是否
+    完全启动。用具名字段而不是裸 tuple，是为了让 caller 不会把顺序记反。
+    """
+
+    ui: int
+    """界面进程 PID，雷电是 dnplayer.exe、夜神是 Nox.exe"""
+    vm: int
+    """VM 进程 PID，雷电是 VBox、夜神是 NoxVMHandle.exe；负责与 adb 通信"""
 
 
 class DeviceType(Enum):
@@ -97,12 +111,8 @@ class DeviceConsole(CMD, ABC):
         """关闭模拟器"""
 
     @abstractmethod
-    def get_pids(self, idx: int | str) -> tuple[int, int]:
-        """返回 (界面进程 PID, VM 进程 PID)；该实例未运行时为 (-1, -1)
-
-        界面进程和 VM 进程是两个不同的进程，判断模拟器是否**完全**启动需要
-        两者同时存在。
-        """
+    def get_pids(self, idx: int | str) -> Pids:
+        """该实例的界面进程和 VM 进程 PID；未运行时两者都是 -1。"""
 
     @abstractmethod
     def getprop(self, idx: int | str, prop: str | None) -> str:
