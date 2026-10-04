@@ -130,8 +130,8 @@ CI 在 `.github/workflows/ci.yml`，跑 Python 3.10（声明的最低版本）�
 
 ## 术语
 
-领域词汇见 [CONTEXT.md](./CONTEXT.md) —— 尤其「Device 与 Emulator 差在哪」「Serial 为什么是运行期才确定的」这两条。
+领域词汇见 [CONTEXT.md](https://github.com/kin9-0rz/androtools/blob/master/CONTEXT.md) —— 尤其「Device 与 Emulator 差在哪」「Serial 为什么是运行期才确定的」这两条。
 
 ## 破坏性变更
 
-1.x → 2.0 的迁移说明见 [CHANGELOG.md](./CHANGELOG.md)。
+1.x → 2.0 的迁移说明见 [CHANGELOG.md](https://github.com/kin9-0rz/androtools/blob/master/CHANGELOG.md)。
