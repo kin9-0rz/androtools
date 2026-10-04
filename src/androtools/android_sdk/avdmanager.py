@@ -3,10 +3,6 @@ import shutil
 from androtools.cmd import CMD
 
 
-class AVDInfo:
-    name: str
-
-
 class AVDManager(CMD):
     def __init__(self, path=shutil.which("avdmanager")) -> None:
         super().__init__(path)
