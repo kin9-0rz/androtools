@@ -18,7 +18,7 @@ from func_timeout import FunctionTimedOut, func_timeout
 
 from androtools import logger
 from androtools.android_sdk.platform_tools import ADB, AdbRunner
-from androtools.core.constants import Android_API_MAP, KeyEvent
+from androtools.core.constants import KeyEvent
 from androtools.core.device import DeviceConsole, DeviceInfo, DeviceStatus, EmulatorInfo
 from androtools.core.shell import AndroidShell
 
@@ -27,6 +27,7 @@ from androtools.core.shell import AndroidShell
 _PROBE_KEY = KeyEvent.KEYCODE_ALT_LEFT
 _BOOT_RETRY_BUDGET = 10
 _CRASH_PROBE_TIMEOUT = 5
+_VERSION_PROP = "ro.build.version.release"
 
 
 class Device:
@@ -64,9 +65,14 @@ class Device:
 
     @property
     def android_version(self) -> str:
-        """设备的 Android 版本，首次访问时才查；查不到为 Unknown。"""
+        """设备的 Android 版本，首次访问时才问设备；问不到为 Unknown。
+
+        直接读 ro.build.version.release，而不是查本地的 Android_API_MAP ——
+        那张表停在 sdk 35，新机器早就跑上去了（实测一台 sdk 37 的设备，表里没有）。
+        设备自己给的答案既权威又不需要维护。
+        """
         if self._android_version is None:
-            self._android_version = Android_API_MAP.get(self.shell.sdk, ("Unknown", ""))[0]
+            self._android_version = self.read_prop(_VERSION_PROP) or "Unknown"
         return self._android_version
 
     # ------------------------------------------------------------------------ #

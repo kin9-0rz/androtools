@@ -106,39 +106,31 @@ class ADB(CMD):
         result = self.run_cmd([])
         return result.output
 
-    def get_devices(self, max_tries=10):
+    def get_devices(self) -> list[tuple[str, str, str]]:
+        """列出 adb 当前能看到的每一个目标。
+
+        纯查询：问一次，解析，返回。重试和重连 adb server 不归它管 —— 那是调用方
+        在知道「模拟器可能还没连上」时才该做的事。
+
+        Returns:
+            每个在线目标是 (serial, status, transport id)，顺序同 adb 输出。
+        """
+        output = self.run_cmd(["devices", "-l"]).output.strip()
+        lines = output.splitlines()
+        if len(lines) <= 1:
+            return []
+
         devices = []
-
-        counter = 0
-        while True:
-            counter += 1
-            if counter == max_tries:
-                return devices
-
-            self.run_cmd(["devices", "-l"])
-            self.run_cmd(["devices", "-l"])
-
-            result = self.run_cmd(["devices", "-l"])
-            output = result.output.strip()
-            if output == "List of devices attached":
-                sleep(0.5)
+        for line in lines[1:]:
+            # adb 自己打的提示行（如 daemon 启动信息）以 * 开头，不是设备
+            if line.startswith("*"):
                 continue
 
-            if "127.0.0.1:" not in output:
-                break
-            self.restart_server()
-            sleep(5)
-
-        lines = output.strip().splitlines()
-        if len(lines) <= 1:
-            return devices
-
-        for line in lines[1:]:
             arr = line.split()
-            name = arr[0]
-            status = arr[1]
-            tid = arr[-1].split(":")[-1]
-            devices.append((name, status, tid))
+            if len(arr) < 2:
+                continue
+
+            devices.append((arr[0], arr[1], arr[-1].split(":")[-1]))
 
         return devices
 

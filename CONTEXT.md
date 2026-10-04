@@ -1,17 +1,17 @@
 # androtools
 
-一个对 Android SDK 及第三方模拟器命令行工具的封装库。它的存在意义是：把「启动模拟器、等待开机、判断状态」这段最容易出错、也最难手工验证的流程收进一处，让调用方只需要面对一个稳定的概念。
+一个对 Android SDK、第三方模拟器命令行工具、以及通过 adb 连接的 Android 设备的封装库。它的存在意义是：把「判断状态、等它就绪、卡死了怎么办」这段最容易出错、也最难手工验证的流程收进一处，让调用方只需要面对一个稳定的概念。
 
 ## Language
 
 ### 目标与宿主
 
 **Device**:
-一个可以通过 adb 寻址并接受命令的 Android 目标。这是本库操作的**对象**本身。
-_Avoid_: 模拟器（模拟器只是 Device 的一种宿主形态）、设备类型
+一个可以通过 adb 寻址并接受命令的 Android 目标 —— 真机（插着 USB 或 WiFi adb 的手机）或者模拟器。这是本库操作的**对象**本身。两者在这一点上没有区别，本库不做区分。
+_Avoid_: 模拟器（模拟器只是 Device 的一种**宿主**形态）、设备类型
 
 **Emulator**:
-由第三方应用提供的 Android 虚拟设备宿主程序（雷电、夜神、MuMu）。用户在宿主机上手动安装并启动它；它启动之后，在本库眼中就只是一个 Device —— 和真机没有区别。
+由第三方应用提供的 Android 虚拟设备宿主程序（雷电、夜神、MuMu）。用户在宿主机上手动安装并启动它；它启动之后，在本库眼中就只是一个 Device —— 和真机没有区别。区别在于宿主那一侧：Emulator 有厂商 Console、能被 launch 和 close，Device 没有。
 _Avoid_: Device、模拟器实例
 
 ### 寻址
@@ -43,7 +43,7 @@ _Avoid_: 启动状态、PID 判断（说清是哪一种）
 ### 状态
 
 **Device State**:
-一个 Device 在某一时刻的生命周期状态，取值为 STOP / BOOT / DEVICE / BOOT_COMPLETED / OFFLINE / ERROR。注意 STOP 表示「尚未启动」，而 OFFLINE 与 ERROR 都表示「已启动但无法交互，通常只能重启」—— 这两者对使用者的处置动作是一样的。
+一个 Device 在某一时刻的状态，取值为 STOP / BOOT / DEVICE / BOOT_COMPLETED / OFFLINE / ERORR。STOP 的含义随宿主而变，对模拟器是「尚未启动」，对真机是「adb 看不见它」—— 拔线、关 USB 调试都落在这里。而 OFFLINE 与 ERROR 都表示「连上了但用不了」。
 _Avoid_: 状态、status（值本身叫 `DeviceStatus`）
 
 **VM PID**:

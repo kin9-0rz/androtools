@@ -16,7 +16,7 @@ GET_STATE = ("get-state",)
 BOOT_COMPLETED = ("getprop", "sys.boot_completed")
 PROBE_KEY = ("input", "keyevent", "57")
 RECONNECT = ("reconnect",)
-SDK = ("getprop", "ro.build.version.sdk")
+VERSION = ("getprop", "ro.build.version.release")
 
 
 def make_device(responses=None, errors=None, info=None) -> tuple[Device, FakeADB]:
@@ -166,15 +166,25 @@ def test_str_shows_name_and_serial_not_the_version():
 
 
 def test_android_version_is_resolved_lazily_and_cached():
-    dev, adb = make_device({SDK: CmdResult("30", "")})
+    dev, adb = make_device({VERSION: CmdResult("17", "")})
 
-    assert dev.android_version == "Android 11"
-    assert dev.android_version == "Android 11"
-    assert adb.count(*SDK) == 1
+    assert dev.android_version == "17"
+    assert dev.android_version == "17"
+    assert adb.count(*VERSION) == 1
 
 
-def test_android_version_is_unknown_when_the_sdk_is_not_in_the_table():
-    dev, _ = make_device({SDK: CmdResult("7", "")})
+def test_android_version_comes_from_the_device_not_a_static_table():
+    """回归测试：以前查本地的 Android_API_MAP，那张表停在 sdk 35。
+
+    一台 sdk 37 的真机因此报 Unknown —— 而设备自己就知道答案。
+    """
+    dev, _ = make_device({VERSION: CmdResult("17", "")})
+
+    assert dev.android_version == "17"
+
+
+def test_android_version_is_unknown_when_the_device_does_not_answer():
+    dev, _ = make_device({VERSION: CmdResult("", "")})
 
     assert dev.android_version == "Unknown"
 
