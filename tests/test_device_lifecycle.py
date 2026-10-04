@@ -7,6 +7,7 @@
 这些测试是纯单元测试：不碰模拟器，不碰 adb，也不需要 Android SDK。
 """
 
+import inspect
 import subprocess
 import threading
 from typing import Any
@@ -23,6 +24,7 @@ from androtools.core.device import (
     Pids,
 )
 from androtools.core.ld import LDConsole, LDPlayer
+from androtools.core.mumu import MumuPlayer
 from androtools.core.nox import NoxConsole, NoxPlayer
 from androtools.core.session import EmulatorSession
 from androtools.core.shell import AndroidShell
@@ -367,6 +369,18 @@ def test_device_console_rejects_incomplete_adapter():
 
     with pytest.raises(TypeError):
         HalfConsole("ldconsole")  # type: ignore[abstract]
+
+
+def test_every_player_can_be_built_from_info_alone():
+    """回归测试：console 一度是必需位置参数，LDPlayer(info) 直接 TypeError。
+
+    各厂商 Player 各自自建 Console，所以 console 必须可选。之前的测试全都注入了
+    fake console，从来没走过默认构造这条路径，所以这个回归漏了过去。
+    """
+    for cls in (LDPlayer, NoxPlayer, MumuPlayer):
+        params = inspect.signature(cls.__init__).parameters.values()
+        required = [p.name for p in params if p.default is inspect.Parameter.empty]
+        assert required == ["self", "info"], f"{cls.__name__} 的必需参数是 {required}"
 
 
 def test_nox_get_pids_returns_minus_one_for_unknown_index():

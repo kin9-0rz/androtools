@@ -105,6 +105,20 @@ class LDConsole(DeviceConsole):
 class LDPlayer(ConsoleSession):
     """雷电模拟器"""
 
+    def __init__(
+        self,
+        info: DeviceInfo,
+        adb: AdbRunner | None = None,
+        sleeper: Callable[[float], None] = time.sleep,
+        console: LDConsole | None = None,
+    ) -> None:
+        super().__init__(
+            info,
+            LDConsole(info.console_path) if console is None else console,
+            adb=adb,
+            sleeper=sleeper,
+        )
+
     def is_crashed(self) -> bool:
         """
         判断模拟器是否没响应，如果没响应，则定义为模拟器崩溃
