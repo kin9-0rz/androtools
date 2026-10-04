@@ -12,7 +12,7 @@ Serial 在每次调用时从 DeviceInfo 现取，不是构造时固定的 ——
 from typing import Literal
 
 from androtools import logger
-from androtools.android_sdk.platform_tools import AdbRunner
+from androtools.android_sdk.platform_tools import AdbRunner, AmbiguousDeviceError
 from androtools.cmd.result import CmdResult
 from androtools.core.constants import KeyEvent
 from androtools.core.device import DeviceInfo
@@ -25,10 +25,38 @@ class AndroidShell:
         self._adb = adb
         self._info = info
         self._sdk: int | None = None
+        self._verified_single = False
 
     @property
     def serial(self) -> str | None:
         return self._info.serial
+
+    def _checked_serial(self) -> str | None:
+        """返回 serial；为空时先确认只有一台设备在线。
+
+        serial 为空等于「让 adb 自己挑」，而 adb 只有在一台设备时才挑得对。
+        多台时它会回 more than one device/emulator —— 那条命令直接失败还算好，
+        真正危险的是上层把「adb 拒绝了」当成「设备没启动」或者干脆忽略掉，
+        于是一个查不到任何东西的 Device 报出了 BOOT_COMPLETED。
+
+        「只有一台」这个结论缓存下来，免得每条 adb 命令都多跑一次 devices -l；
+        但歧义**不缓存** —— 缓存错误等于第一次抛完异常之后就静默放行，那正是
+        上面要防的事。设备插拔之后要重新判断，换一个 shell 即可。
+        """
+        if self._info.serial is not None:
+            return self._info.serial
+
+        if not self._verified_single:
+            attached = self._adb.get_devices()
+            if len(attached) > 1:
+                raise AmbiguousDeviceError(
+                    f"没有指定 serial，而 adb 上有 {len(attached)} 台设备在线："
+                    f"{[d[0] for d in attached]}。"
+                    "请在 DeviceInfo.serial 里指定其中一台。"
+                )
+            self._verified_single = True
+
+        return None
 
     @property
     def sdk(self) -> int:
@@ -50,21 +78,21 @@ class AndroidShell:
 
     def adb(self, cmd: list, timeout: int = 30) -> CmdResult:
         """执行 adb 命令"""
-        return self._adb.run_cmd(cmd, self._info.serial, timeout)
+        return self._adb.run_cmd(cmd, self._checked_serial(), timeout)
 
     def adb_shell(self, cmd: list[str], timeout: int = 30) -> CmdResult:
         """执行 adb shell 命令"""
         if isinstance(cmd, str):
             raise TypeError(f"命令必须是列表：{cmd}")
         assert isinstance(cmd, list)
-        return self._adb.run_shell_cmd(cmd, self._info.serial, timeout)
+        return self._adb.run_shell_cmd(cmd, self._checked_serial(), timeout)
 
     def adb_shell_daemon(self, cmd: list[str]) -> None:
         """在设备上启动一个后台命令，不等待结果"""
         if isinstance(cmd, str):
             raise TypeError(f"命令必须是列表：{cmd}")
         assert isinstance(cmd, list)
-        self._adb.run_shell_cmd_daemon(cmd, self._info.serial)
+        self._adb.run_shell_cmd_daemon(cmd, self._checked_serial())
 
     def getprop(self, prop: str | None = None) -> str:
         """获取设备属性；prop 为 None 时返回全部属性"""

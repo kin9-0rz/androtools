@@ -9,7 +9,8 @@ run_app 的 activity 解析、list_packages 的输出转换、以及 serial 的�
 
 import pytest
 
-from helpers import make_emulator_info
+from helpers import make_device_info, make_emulator_info
+from androtools.android_sdk.platform_tools import AmbiguousDeviceError
 from androtools.cmd.result import CmdResult
 from androtools.core.shell import AndroidShell
 from androtools.testing import FakeADB
@@ -70,6 +71,113 @@ def test_adb_call_passes_the_current_serial():
     shell.adb(["get-state"])
 
     assert adb.calls[0].serial == "emulator-5554"
+
+
+# --------------------------------------------------------------------------- #
+# serial 为空时的歧义保护
+# --------------------------------------------------------------------------- #
+
+
+class CountingDeviceQueries(FakeADB):
+    """FakeADB 的 get_devices 是直接返回，不走 run_cmd，所以数不到调用次数。"""
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.device_queries = 0
+
+    def get_devices(self):
+        self.device_queries += 1
+        return super().get_devices()
+
+
+def test_serial_is_required_when_several_devices_are_attached():
+    """回归测试：serial 为空且多台在线时，命令会静默失败。
+
+    adb 回 more than one device/emulator，而上层可能把这个失败当成「设备没启动」
+    或者干脆忽略 —— 于是一个查不到任何东西的 Device 报出了 BOOT_COMPLETED。
+    这条在真机 + MuMu + 雷电同时插着时真的发生过。
+    """
+    adb = FakeADB(
+        responses={("get-state",): CmdResult("device", "")},
+        devices=[("PHONE", "device", "1"), ("emulator-5554", "device", "2")],
+    )
+    shell = AndroidShell(adb, make_device_info(serial=None))
+
+    with pytest.raises(AmbiguousDeviceError) as err:
+        shell.adb(["get-state"])
+
+    assert "emulator-5554" in str(err.value)
+    assert "PHONE" in str(err.value)
+
+
+def test_a_single_attached_device_may_be_relied_on_by_adb():
+    """只有一台在线时，不加 -s 是安全的 —— adb 只会选它。"""
+    adb = FakeADB(
+        responses={("get-state",): CmdResult("device", "")},
+        devices=[("ONLYONE", "device", "1")],
+    )
+    shell = AndroidShell(adb, make_device_info(serial=None))
+
+    shell.adb(["get-state"])
+
+    assert adb.calls[0].serial is None
+
+
+def test_no_devices_attached_is_left_to_adb_to_report():
+    """0 台在线时不用我们拦 —— adb 自己会回 no devices/emulators found。"""
+    adb = FakeADB(responses={("get-state",): CmdResult("", "no devices/emulators found")})
+    shell = AndroidShell(adb, make_device_info(serial=None))
+
+    result = shell.adb(["get-state"])
+
+    assert "no devices" in result.error
+
+
+def test_the_success_verdict_is_cached_but_ambiguity_always_raises():
+    """别让每条 adb 命令都多跑一次 devices -l —— 但歧义不能被缓存掉。
+
+    缓存错误的话，第一次抛完异常之后第二次就静默放行，那正是这里要防的撒谎。
+    """
+    adb = FakeADB(
+        responses={("get-state",): CmdResult("device", "")},
+        devices=[("A", "device", "1"), ("B", "device", "2")],
+    )
+    shell = AndroidShell(adb, make_emulator_info(serial=None))
+
+    with pytest.raises(AmbiguousDeviceError):
+        shell.adb(["get-state"])
+
+    adb.calls.clear()
+    with pytest.raises(AmbiguousDeviceError):
+        shell.adb(["get-state"])
+
+    assert adb.calls == []  # 第二次没再查设备列表，但异常照抛
+
+
+def test_the_single_device_verdict_is_cached():
+    adb = CountingDeviceQueries(
+        responses={("get-state",): CmdResult("device", "")},
+        devices=[("ONLYONE", "device", "1")],
+    )
+    shell = AndroidShell(adb, make_emulator_info(serial=None))
+
+    shell.adb(["get-state"])
+    shell.adb(["get-state"])
+
+    assert adb.device_queries == 1
+    assert adb.commands("run_cmd") == [("get-state",), ("get-state",)]
+
+
+def test_an_explicit_serial_skips_the_check_entirely():
+    adb = FakeADB(
+        responses={("get-state",): CmdResult("device", "")},
+        devices=[("A", "device", "1"), ("B", "device", "2")],
+    )
+    shell = AndroidShell(adb, make_emulator_info(serial="B"))
+
+    shell.adb(["get-state"])
+
+    assert adb.calls[0].serial == "B"
 
 
 # --------------------------------------------------------------------------- #

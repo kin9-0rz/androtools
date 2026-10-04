@@ -51,10 +51,15 @@ class FakeADB:
         self,
         responses: Mapping[tuple[str, ...], CmdResult | None] | None = None,
         errors: Mapping[tuple[str, ...], BaseException] | None = None,
+        devices: list[tuple[str, str, str]] | None = None,
     ) -> None:
         self._responses = dict(responses or {})
         self._errors = dict(errors or {})
+        self._devices = list(devices or [])
         self.calls: list[AdbCall] = []
+
+    def get_devices(self) -> list[tuple[str, str, str]]:
+        return list(self._devices)
 
     def run_cmd(
         self, cmd: list[str], serial: str | None = None, timeout: int = 30

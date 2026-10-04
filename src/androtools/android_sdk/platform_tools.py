@@ -20,6 +20,10 @@ class DeviceOfflineError(Exception):
     pass
 
 
+class AmbiguousDeviceError(Exception):
+    """没有指定 serial，而 adb 那边有多台设备在线 —— adb 不知道该操作哪一台。"""
+
+
 class AdbRunner(Protocol):
     """执行 adb 命令的 interface，Device 的生命周期逻辑全走这个 seam。
 
@@ -31,6 +35,9 @@ class AdbRunner(Protocol):
     serial 保留在 interface 上是有意的：它对绝大多数调用是同一个值，但夜神
     模拟器在启动过程中会改写 DeviceInfo.serial，测试和调用方都需要看到
     「当前用的是哪个 serial」。
+
+    get_devices 也在 interface 上：serial 为空时需要靠它判断「只有一台设备」
+    才敢不加 -s，否则 adb 会直接拒绝。
     """
 
     def run_cmd(
@@ -44,6 +51,9 @@ class AdbRunner(Protocol):
     def run_shell_cmd_daemon(
         self, cmd: list[str], serial: str | None = None
     ) -> None: ...
+
+    def get_devices(self) -> list[tuple[str, str, str]]:
+        """在线目标列表，每项是 (serial, status, transport id)。"""
 
 
 class ADB(CMD):
