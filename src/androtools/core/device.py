@@ -21,46 +21,39 @@ class Pids(NamedTuple):
     """VM 进程 PID，雷电是 VBox、夜神是 NoxVMHandle.exe；负责与 adb 通信"""
 
 
-class DeviceType(Enum):
-    """模拟器类型"""
-
-    LD = "ld"
-    NOX = "nox"
-    MUMU = "mumu"
-    UNKNOWN = "unknown"
-
-    @staticmethod
-    def get(value: str):
-        value = value.lower()
-        for item in DeviceType:
-            if item.value == value:
-                return item
-        return DeviceType.UNKNOWN
-
-
 @dataclass
 class DeviceInfo:
-    """模拟器信息"""
+    """一个 adb 目标的身份。真机和模拟器共有的部分。"""
 
-    device_type: DeviceType
-    index: str  # 模拟器序号，雷电模拟器、夜神模拟器的序号
-    serial: str | None  # 模拟器序列号，adb -s 的操作对象
-    name: str  # 模拟器名称，它可以修改。
-    version: int  # 模拟器版本, 如 9 表示 Android 9
+    name: str  # 展示用的名字
+    serial: str | None  # adb -s 的操作对象
     adb_path: str  # adb 路径
-    console_path: str  # 模拟器控制器；雷电模拟器则是 ldconsole
-    gateway: str  # 网关IP
-    proxy_port: int  # mitmproxy 代理端口
 
-    def __eq__(self, __value: object) -> bool:
-        if not isinstance(__value, DeviceInfo):
-            return False
+    def __eq__(self, other: object) -> bool:
+        """身份是 serial + adb_path。
 
-        return (
-            self.index == __value.index
-            and self.adb_path == __value.adb_path
-            and self.console_path == __value.console_path
-        )
+        不比 name —— 模拟器的名字用户可以改。serial 本身也要比，因为它是 adb
+        唯一的寻址依据；但它在夜神和 MuMu 上会被启动流程改写，改写前后仍然是
+        同一台设备。
+        """
+        if not isinstance(other, DeviceInfo):
+            return NotImplemented
+
+        return self.serial == other.serial and self.adb_path == other.adb_path
+
+    def __repr__(self) -> str:
+        return f"{self.name} ({self.serial})"
+
+
+@dataclass(eq=False)
+class EmulatorInfo(DeviceInfo):
+    """模拟器的身份：厂商 Console 的编号，加上它自带的控制台路径。
+
+    真机没有这两样东西，所以它们不在 DeviceInfo 里。
+    """
+
+    index: str  # 模拟器序号，雷电模拟器、夜神模拟器的序号
+    console_path: str  # 厂商控制台，如 ldconsole.exe
 
     def __repr__(self) -> str:
         return f"{self.index} {self.name}"

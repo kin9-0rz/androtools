@@ -7,12 +7,10 @@ run_app 的 activity 解析、list_packages 的输出转换、以及 serial 的�
 测了等于把命令的字符形状钉死。
 """
 
-from typing import Any
-
 import pytest
 
+from helpers import make_emulator_info
 from androtools.cmd.result import CmdResult
-from androtools.core.device import DeviceInfo, DeviceType
 from androtools.core.shell import AndroidShell
 from androtools.testing import FakeADB
 
@@ -20,25 +18,9 @@ SERIAL = "127.0.0.1:5555"
 SDK_PROP = ("getprop", "ro.build.version.sdk")
 
 
-def make_info(**overrides: Any) -> DeviceInfo:
-    fields: dict[str, Any] = dict(
-        device_type=DeviceType.LD,
-        index="0",
-        serial=SERIAL,
-        name="test-device",
-        version=9,
-        adb_path="adb",
-        console_path="ldconsole",
-        gateway="127.0.0.1",
-        proxy_port=8080,
-    )
-    fields.update(overrides)
-    return DeviceInfo(**fields)
-
-
 def make_shell(responses=None, errors=None, info=None) -> tuple[AndroidShell, FakeADB]:
     adb = FakeADB(responses=responses, errors=errors)
-    return AndroidShell(adb, info or make_info()), adb
+    return AndroidShell(adb, info or make_emulator_info()), adb
 
 
 # --------------------------------------------------------------------------- #
@@ -69,7 +51,7 @@ def test_sdk_is_minus_one_when_the_device_does_not_answer():
 
 def test_serial_follows_the_info_object():
     """夜神在启动过程中会改写 DeviceInfo.serial，shell 必须每次现取。"""
-    info = make_info()
+    info = make_emulator_info()
     shell, _ = make_shell(info=info)
 
     assert shell.serial == SERIAL
@@ -80,7 +62,7 @@ def test_serial_follows_the_info_object():
 
 
 def test_adb_call_passes_the_current_serial():
-    info = make_info()
+    info = make_emulator_info()
     adb = FakeADB(responses={("get-state",): CmdResult("device", "")})
     shell = AndroidShell(adb, info)
 

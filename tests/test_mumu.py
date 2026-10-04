@@ -11,8 +11,9 @@ import json
 
 import pytest
 
+from helpers import make_emulator_info
 from androtools.cmd.result import CmdResult
-from androtools.core.device import DeviceConsole, DeviceInfo, DeviceStatus, DeviceType
+from androtools.core.device import DeviceConsole, DeviceStatus
 from androtools.core.mumu import MumuConsole, MumuPlayer
 from androtools.testing import FakeADB
 
@@ -84,16 +85,11 @@ def console(**overrides) -> ScriptedMumuConsole:
 
 
 def make_player(mumu: MumuConsole, index: str = "1") -> MumuPlayer:
-    info = DeviceInfo(
-        device_type=DeviceType.MUMU,
+    info = make_emulator_info(
         index=index,
         serial=None,
         name="A12",
-        version=9,
-        adb_path="adb",
         console_path="MuMuManager.exe",
-        gateway="127.0.0.1",
-        proxy_port=8080,
     )
     return MumuPlayer(info, adb=FakeADB(), sleeper=lambda _s: None, console=mumu)
 

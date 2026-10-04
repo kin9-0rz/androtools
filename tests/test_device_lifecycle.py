@@ -10,17 +10,14 @@
 import inspect
 import subprocess
 import threading
-from typing import Any
-
 import pytest
 
 from androtools.android_sdk.platform_tools import DeviceOfflineError
 from androtools.cmd.result import CmdResult
+from helpers import make_emulator_info
 from androtools.core.device import (
     DeviceConsole,
-    DeviceInfo,
     DeviceStatus,
-    DeviceType,
     Pids,
 )
 from androtools.core.ld import LDConsole, LDPlayer
@@ -39,21 +36,6 @@ BOOT_COMPLETED = ("getprop", "sys.boot_completed")
 ALT_LEFT = ("input", "keyevent", "57")  # KeyEvent.KEYCODE_ALT_LEFT
 HOME = ("input", "keyevent", "3")  # KeyEvent.KEYCODE_HOME
 
-
-def make_info(**overrides) -> DeviceInfo:
-    fields: dict[str, Any] = dict(
-        device_type=DeviceType.LD,
-        index="0",
-        serial=SERIAL,
-        name="test-device",
-        version=9,
-        adb_path="adb",
-        console_path="ldconsole",
-        gateway="127.0.0.1",
-        proxy_port=8080,
-    )
-    fields.update(overrides)
-    return DeviceInfo(**fields)
 
 
 class FakePlayer(EmulatorSession):
@@ -85,7 +67,7 @@ def make_device(
     responses=None, errors=None, info=None, **kwargs
 ) -> tuple[FakePlayer, FakeADB]:
     adb = FakeADB(responses=responses, errors=errors)
-    return FakePlayer(info or make_info(), adb, **kwargs), adb
+    return FakePlayer(info or make_emulator_info(), adb, **kwargs), adb
 
 
 def booting_responses(state_output="device", state_error="", boot_completed="0"):
@@ -244,7 +226,7 @@ class HangingShell(AndroidShell):
 def test_is_crashed_true_when_home_key_never_responds():
     """is_crashed 用 5 秒的 func_timeout 包裹 shell.home()，所以这个测试要真的等 5 秒。"""
     adb = FakeADB()
-    dev = FakePlayer(make_info(), adb)
+    dev = FakePlayer(make_emulator_info(), adb)
     dev.shell = HangingShell(adb, dev.info)
 
     assert dev.is_crashed() is True

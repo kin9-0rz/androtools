@@ -29,7 +29,11 @@ class CmdResult:
         return txt in self.output
 
     def output_equal(self, txt: str) -> bool:
-        return txt in self.output
+        """stdout 是否**恰好**等于 txt。
+
+        不要用 contain 代替：「device offline」包含 device，但它是离线状态，不是已连接。
+        """
+        return self.output == txt
 
     def has_error(self) -> bool:
         return self.error != ""

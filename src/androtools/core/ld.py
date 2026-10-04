@@ -5,7 +5,7 @@ from typing import Callable
 
 from androtools import logger
 from androtools.android_sdk.platform_tools import AdbRunner
-from androtools.core.device import DeviceConsole, DeviceInfo, DeviceStatus, Pids
+from androtools.core.device import DeviceConsole, DeviceStatus, EmulatorInfo, Pids
 from androtools.core.session import ConsoleSession
 
 
@@ -107,7 +107,7 @@ class LDPlayer(ConsoleSession):
 
     def __init__(
         self,
-        info: DeviceInfo,
+        info: EmulatorInfo,
         adb: AdbRunner | None = None,
         sleeper: Callable[[float], None] = time.sleep,
         console: LDConsole | None = None,

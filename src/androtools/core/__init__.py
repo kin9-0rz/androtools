@@ -3,13 +3,13 @@ from androtools.core.device import (
     DeviceConsole,
     DeviceInfo,
     DeviceStatus,
-    DeviceType,
+    EmulatorInfo,
     Pids,
 )
 from androtools.core.ld import LDConsole, LDPlayer
 from androtools.core.mumu import MumuConsole, MumuPlayer
 from androtools.core.nox import NoxConsole, NoxPlayer
-from androtools.core.session import ConsoleSession, EmulatorSession
+from androtools.core.session import ConsoleSession, Device, EmulatorSession
 from androtools.core.shell import AndroidShell
 
 __all__ = [
@@ -19,7 +19,8 @@ __all__ = [
     "DeviceConsole",
     "DeviceInfo",
     "DeviceStatus",
-    "DeviceType",
+    "Device",
+    "EmulatorInfo",
     "EmulatorSession",
     "KeyEvent",
     "LDConsole",

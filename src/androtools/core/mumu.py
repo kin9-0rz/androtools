@@ -5,7 +5,7 @@ import time
 from typing import Any, Callable
 
 from androtools.android_sdk.platform_tools import AdbRunner
-from androtools.core.device import DeviceConsole, DeviceInfo, DeviceStatus
+from androtools.core.device import DeviceConsole, DeviceStatus, EmulatorInfo
 from androtools.core.session import ConsoleSession
 
 
@@ -111,7 +111,7 @@ class MumuConsole(DeviceConsole):
 class MumuPlayer(ConsoleSession):
     def __init__(
         self,
-        info: DeviceInfo,
+        info: EmulatorInfo,
         adb: AdbRunner | None = None,
         sleeper: Callable[[float], None] = time.sleep,
         console: MumuConsole | None = None,

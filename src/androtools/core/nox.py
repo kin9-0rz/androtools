@@ -6,7 +6,7 @@ from typing import Callable
 import psutil
 
 from androtools.android_sdk.platform_tools import AdbRunner
-from androtools.core.device import DeviceConsole, DeviceInfo, DeviceStatus, Pids
+from androtools.core.device import DeviceConsole, DeviceStatus, EmulatorInfo, Pids
 from androtools.core.session import ConsoleSession
 
 
@@ -101,7 +101,7 @@ class NoxPlayer(ConsoleSession):
 
     def __init__(
         self,
-        info: DeviceInfo,
+        info: EmulatorInfo,
         adb: AdbRunner | None = None,
         sleeper: Callable[[float], None] = time.sleep,
         console: NoxConsole | None = None,

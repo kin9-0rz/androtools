@@ -9,7 +9,7 @@ FakeADB 未声明的命令会直接报错，所以这份测试必须把 Iptables
 import os
 
 from androtools.cmd.result import CmdResult
-from androtools.core.device import DeviceInfo, DeviceType
+from helpers import make_emulator_info
 from androtools.core.shell import AndroidShell
 from androtools.testing import FakeADB
 from androtools.utils import Iptables, Tcpdump
@@ -82,17 +82,7 @@ def make_shell(
     responses[DUMP] = CmdResult(dump_output, "")
     responses[PULL] = CmdResult("1 file pulled", "")
     adb = FakeADB(responses=responses)
-    info = DeviceInfo(
-        device_type=DeviceType.LD,
-        index="0",
-        serial=SERIAL,
-        name="test-device",
-        version=9,
-        adb_path="adb",
-        console_path="ldconsole",
-        gateway="127.0.0.1",
-        proxy_port=8080,
-    )
+    info = make_emulator_info()
     return AndroidShell(adb, info), adb
 
 
