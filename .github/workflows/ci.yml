@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  check:
+    # 3.10 是 pyproject 里声明的下限；3.13 是本地开发用的版本。两个都要测 ——
+    # 声明支持某个版本却从不在这儿跑它，等于没有承诺。
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python: ["3.10", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python }}
+
+      # --locked：lock 文件和 pyproject 不一致就直接失败，而不是悄悄重新解析。
+      - name: 安装依赖
+        run: uv sync --locked
+
+      - name: 单元测试
+        run: make test
+
+      # 集成测试需要真实 Android SDK 和设备，CI 上跑不了。但至少要能收得起来 ——
+        # 语法错、import 断了，在这里就能发现。
+      - name: 集成测试可被收集
+        run: uv run pytest --collect-only -m integration
+
+      - name: 类型检查
+        run: make typecheck
