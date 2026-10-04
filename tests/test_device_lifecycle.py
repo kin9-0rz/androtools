@@ -150,7 +150,7 @@ def test_get_status_queries_get_state_once_when_answered():
 
 
 def test_get_status_retries_get_state_after_not_found():
-    """"not found" 时 reconnect 之后重试一次 —— 这一段是有意保留的。"""
+    """"not found" 时重连一次再问 —— 这一段是有意保留的。"""
     responses = booting_responses()
     responses[GET_STATE] = CmdResult("", "device 'emulator-5556' not found")
     dev, adb = make_device(responses)
@@ -158,7 +158,21 @@ def test_get_status_retries_get_state_after_not_found():
 
     assert dev.get_status() == DeviceStatus.ERORR
     assert adb.count(*GET_STATE) == 2
-    assert adb.count(*RECONNECT) == 2
+    assert adb.count(*RECONNECT) == 1
+
+
+def test_get_status_does_not_reconnect_when_the_device_answers():
+    """回归测试：以前每次判定都无条件重连。
+
+    `adb reconnect` 会打断 tcp 连接的模拟器（MuMu）且不会自己恢复 ——
+    无条件重连等于每次状态判定都把它弄坏。
+    """
+    dev, adb = make_device(booting_responses("device"))
+    dev.booted = True
+
+    dev.get_status()
+
+    assert adb.count(*RECONNECT) == 0
 
 
 # --------------------------------------------------------------------------- #

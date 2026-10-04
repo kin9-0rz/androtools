@@ -134,6 +134,10 @@ class MumuPlayer(ConsoleSession):
             if self.is_boot():
                 break
         self.refresh_serial()
+        # MuMu 不会像雷电那样把自己注册进 adb server，必须显式 connect。
+        # 不做这一步，adb devices 里只有真机，get_status() 会一路判到 ERORR。
+        if self.info.serial:
+            self.shell.adb(["connect", self.info.serial])
 
     def close(self) -> None:
         self.console.quit_device(self.index)

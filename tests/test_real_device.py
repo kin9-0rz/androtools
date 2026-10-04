@@ -7,6 +7,7 @@
 import pytest
 from helpers import make_device_info, make_emulator_info
 
+from androtools.android_sdk.platform_tools import DeviceOfflineError
 from androtools.cmd.result import CmdResult
 from androtools.core.device import DeviceStatus, Pids
 from androtools.core.session import Device, EmulatorSession
@@ -187,6 +188,25 @@ def test_android_version_is_unknown_when_the_device_does_not_answer():
     dev, _ = make_device({VERSION: CmdResult("", "")})
 
     assert dev.android_version == "Unknown"
+
+
+def test_android_version_is_unknown_when_the_device_cannot_be_asked():
+    """回归测试：问不到设备时曾经抛异常，而不是返回 Unknown。
+
+    停掉的模拟器上 Console 会抛（MuMu: vm not running），拔线的真机会抛
+    DeviceOfflineError —— 两者都是「问不到」，不是出错。
+    """
+    dev, _ = make_device({}, errors={VERSION: DeviceOfflineError("设备已断开")})
+
+    assert dev.android_version == "Unknown"
+
+
+def test_android_version_still_raises_on_a_real_failure():
+    """只catch「问不到」那两种；其它异常照常冒出来。"""
+    dev, _ = make_device({}, errors={VERSION: ValueError("解析不了")})
+
+    with pytest.raises(ValueError):
+        dev.android_version
 
 
 def test_identity_is_serial_plus_adb_path():

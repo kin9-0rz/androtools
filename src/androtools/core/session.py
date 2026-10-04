@@ -17,7 +17,7 @@ from typing import Callable
 from func_timeout import FunctionTimedOut, func_timeout
 
 from androtools import logger
-from androtools.android_sdk.platform_tools import ADB, AdbRunner
+from androtools.android_sdk.platform_tools import ADB, AdbRunner, DeviceOfflineError
 from androtools.core.constants import KeyEvent
 from androtools.core.device import EmulatorConsole, DeviceInfo, DeviceStatus, EmulatorInfo
 from androtools.core.shell import AndroidShell
@@ -72,8 +72,16 @@ class Device:
         设备自己给的答案既权威又不需要维护。
         """
         if self._android_version is None:
-            self._android_version = self.read_prop(_VERSION_PROP) or "Unknown"
+            self._android_version = self._probe_version()
         return self._android_version
+
+    def _probe_version(self) -> str:
+        try:
+            return self.read_prop(_VERSION_PROP) or "Unknown"
+        except (DeviceOfflineError, RuntimeError):
+            # 问不到不等于出错：设备没启动、掉线、Console 连不上都属于这一类。
+            # 只catch 这两种 —— 其它异常照常抛出来，那是真的出错了。
+            return "Unknown"
 
     # ------------------------------------------------------------------------ #
     #                            interface: 状态                                 #
@@ -88,16 +96,13 @@ class Device:
         if not self.is_boot():
             return DeviceStatus.STOP
 
-        self.reconnect()
-        self._sleep(3)
-
         result = self.shell.adb(["get-state"])
         if result.contain("not found"):
-            # NOTE: adb 执行的速度太快可能会导致 not found
-            # error: device 'emulator-5556' not found
-            # 再次确认
+            # adb 可能还没认到刚起来的设备，重连一次再问。
+            # 只在真的问不到时才重连 —— 实测 `adb reconnect` 会打断 tcp 连接的
+            # 模拟器（MuMu）且不会自己恢复，无条件重连等于每次判定都把它弄坏。
             self.reconnect()
-            self._sleep(5)
+            self._sleep(3)
             result = self.shell.adb(["get-state"])
             if result.contain("not found"):
                 return DeviceStatus.ERORR
@@ -275,6 +280,15 @@ class ConsoleSession(EmulatorSession):
         return self.console.probe_state(self.index) == DeviceStatus.BOOT
 
     def read_prop(self, prop: str) -> str:
+        """通过 Console 读属性。
+
+    先确认模拟器起来了 —— 因为厂商 CLI 在实例没启动时不会干净地失败：雷电的
+    ldconsole getprop 会把 adb 的报错写进 **stdout 并返回 exit 0**，调用方没法从
+    返回码或 stderr 判断，只能拿到一句错误文案当属性值。拦在这里比事后在每个
+    调用方判断要可靠得多。
+    """
+        if self.console.probe_state(self.index) != DeviceStatus.BOOT:
+            raise RuntimeError(f"{self.name} 未启动，Console 问不到属性 {prop}")
         return self.console.getprop(self.index, prop)
 
     def run_app(self, package: str) -> bool:
