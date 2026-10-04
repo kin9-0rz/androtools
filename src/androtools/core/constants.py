@@ -1,32 +1,6 @@
-# API等级，SDK，CodeName
-# https://apilevels.com/
+# Android 常量
+
 from enum import Enum
-
-Android_API_MAP = {
-    14: ("Android 4.0.1", "Ice Cream Sandwich"),
-    15: ("Android 4.0.3", "Ice Cream Sandwich"),
-    16: ("Android 4.1", "Jelly Bean"),
-    17: ("Android 4.2", "Jelly Bean"),
-    18: ("Android 4.3", "Jelly Bean"),
-    19: ("Android 4.4", "KitKat"),
-    20: ("Android 4.4w", "KitKat"),
-    21: ("Android 5.0", "Lollipop"),
-    22: ("Android 5.1", "Lollipop"),
-    23: ("Android 6", "Marshmallow"),
-    24: ("Android 7.0", "Nougat"),
-    25: ("Android 7.1", "Nougat"),
-    26: ("Android 8.0", "Oreo"),
-    27: ("Android 8.1", "Oreo"),
-    28: ("Android 9", "Pie"),
-    29: ("Android 10", "Quince Tart"),
-    30: ("Android 11", "Red Velvet Cake"),
-    31: ("Android 12", "Snow Cone"),
-    32: ("Android 12L", "Snow Cone"),
-    33: ("Android 13", "TIRAMISU"),
-    34: ("Android 14", "Upside Down Cake"),
-    35: ("Android 15", "Vanilla Ice Cream"),
-}
-
 
 class KeyEvent(Enum):
     KEYCODE_UNKNOWN = 0

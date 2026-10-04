@@ -1,4 +1,4 @@
-from androtools.core.constants import Android_API_MAP, KeyEvent
+from androtools.core.constants import KeyEvent
 from androtools.core.device import (
     EmulatorConsole,
     DeviceInfo,
@@ -12,7 +12,6 @@ from androtools.core.session import ConsoleSession, Device, EmulatorSession
 from androtools.core.shell import AndroidShell
 
 __all__ = [
-    "Android_API_MAP",
     "AndroidShell",
     "ConsoleSession",
     "EmulatorConsole",
