@@ -11,7 +11,8 @@ class Pids(NamedTuple):
     """一台模拟器的两个进程标识。
 
     界面进程和 VM 进程是两个不同的进程，只看其中一个不足以判断模拟器是否
-    完全启动。用具名字段而不是裸 tuple，是为了让 caller 不会把顺序记反。
+    完全启动。这是 console 内部的类型 —— interface 上暴露的是状态，不是 PID。
+    不是每个厂商都给得出两个（MuMu 的 CLI 只给一个），所以它不在 interface 上。
     """
 
     ui: int
@@ -25,6 +26,7 @@ class DeviceType(Enum):
 
     LD = "ld"
     NOX = "nox"
+    MUMU = "mumu"
     UNKNOWN = "unknown"
 
     @staticmethod
@@ -89,13 +91,18 @@ class DeviceStatus(Enum):
 
 
 class DeviceConsole(CMD, ABC):
-    """模拟器控制台：启动、关闭、重启模拟器，以及读取它们的 PID。
+    """模拟器控制台：启动、关闭、重启模拟器，探测它起来没有，以及属性和应用操作。
 
-    厂商的命令行方言（雷电的 `--index N`、夜神的 `-index:N`，各自不同的 PID
-    列位置）止步于这个 interface 后面 —— Device 的子类不应该知道这些。
+    厂商的命令行方言（雷电的 `--index N`、夜神的 `-index:N`、MuMu 的
+    `-v N` 加 JSON 输出）止步于这个 interface 后面 —— session 不应该知道这些。
 
-    这里只放 session 真正需要的东西。厂商特有的能力（locate、setprop、
-    install_app 等）留在具体 console 上，不进 interface。
+    关键设计：console 只回答「起来了吗」这个粗问题（probe_state），由 session
+    再用 adb 细分出 DEVICE / BOOT_COMPLETED / OFFLINE / ERORR。厂商的信号强度
+    差别很大 —— 雷电和夜神要靠两个进程 PID 推断，MuMu 直接给 player_state 字符串
+    —— 所以 interface 上暴露的是状态，不是 PID。Pids 只在具体 console 内部使用。
+
+    这里只放 session 真正需要的能力。厂商特有的（locate、setprop、install_app 等）
+    留在具体 console 上，不进 interface。
     """
 
     @abstractmethod
@@ -111,8 +118,12 @@ class DeviceConsole(CMD, ABC):
         """关闭模拟器"""
 
     @abstractmethod
-    def get_pids(self, idx: int | str) -> Pids:
-        """该实例的界面进程和 VM 进程 PID；未运行时两者都是 -1。"""
+    def probe_state(self, idx: int | str) -> DeviceStatus:
+        """模拟器起来了没有。
+
+        只能粗略回答：最多区分 STOP（完全没起来）和 BOOT（进程在了）。开机是否
+        完成、是否离线，由 session 用 adb 继续判定。
+        """
 
     @abstractmethod
     def getprop(self, idx: int | str, prop: str | None) -> str:

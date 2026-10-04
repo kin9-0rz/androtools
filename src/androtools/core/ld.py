@@ -5,7 +5,7 @@ from typing import Callable
 
 from androtools import logger
 from androtools.android_sdk.platform_tools import AdbRunner
-from androtools.core.device import DeviceConsole, DeviceInfo, Pids
+from androtools.core.device import DeviceConsole, DeviceInfo, DeviceStatus, Pids
 from androtools.core.session import ConsoleSession
 
 
@@ -37,6 +37,13 @@ class LDConsole(DeviceConsole):
         parts = lines[int(idx)].split(",")
 
         return Pids(int(parts[5]), int(parts[6]))
+
+    def probe_state(self, idx: int | str) -> DeviceStatus:
+        """雷电不给状态字符串，只能看两个进程在不在。"""
+        pids = self.get_pids(idx)
+        if pids.ui == -1 or pids.vm == -1:
+            return DeviceStatus.STOP
+        return DeviceStatus.BOOT
 
     def launch_device(self, idx: int | str):
         return self._run(["launch", "--index", str(idx)])
@@ -97,32 +104,6 @@ class LDConsole(DeviceConsole):
 
 class LDPlayer(ConsoleSession):
     """雷电模拟器"""
-
-    def __init__(
-        self,
-        info: DeviceInfo,
-        adb: AdbRunner | None = None,
-        sleeper: Callable[[float], None] = time.sleep,
-        console: LDConsole | None = None,
-    ) -> None:
-        super().__init__(
-            info,
-            LDConsole(info.console_path) if console is None else console,
-            adb=adb,
-            sleeper=sleeper,
-        )
-        self.pid = -1
-        """界面进程 PID"""
-        self.vm_pid = -1
-        """VBox 进程 PID —— 负责与 adb 通信的那个 VM 进程"""
-
-    def is_boot(self) -> bool:
-        pids = self.console.get_pids(self.index)
-        self.pid = pids.ui
-        self.vm_pid = pids.vm
-
-        # 两个进程都在，才表示完全启动。
-        return self.pid != -1 and self.vm_pid != -1
 
     def is_crashed(self) -> bool:
         """

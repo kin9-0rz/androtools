@@ -20,6 +20,7 @@ from androtools.core.device import (
     DeviceInfo,
     DeviceStatus,
     DeviceType,
+    Pids,
 )
 from androtools.core.ld import LDConsole, LDPlayer
 from androtools.core.nox import NoxConsole, NoxPlayer
@@ -64,16 +65,18 @@ class FakePlayer(EmulatorSession):
         super().__init__(info, adb=adb, sleeper=sleeper)
         self.launch_count = 0
         self.close_count = 0
-        #: launch() 之后模拟器会起来；置 False 可以观察「启动后仍然起不来」的重试路径
-        self.boot_after_launch = True
+        #: is_boot() 的答案。测试直接翻它来控制「模拟器起来没有」。
+        self.booted = False
 
     def launch(self):
         self.launch_count += 1
-        if self.boot_after_launch:
-            self.pid = 4242
+        self.booted = True
 
     def close(self):
         self.close_count += 1
+
+    def is_boot(self) -> bool:
+        return self.booted
 
 
 def make_device(
@@ -110,7 +113,7 @@ def test_get_status_boot_when_adb_is_unreachable():
     responses = booting_responses()
     responses[GET_STATE] = CmdResult("", "device 'x' not found")
     dev, adb = make_device(responses)
-    dev.pid = 100
+    dev.booted = True
 
     assert dev.get_status() == DeviceStatus.ERORR
 
@@ -118,14 +121,14 @@ def test_get_status_boot_when_adb_is_unreachable():
 def test_get_status_device_connected_but_not_booted():
     responses = booting_responses("device", boot_completed="0")
     dev, adb = make_device(responses)
-    dev.pid = 100
+    dev.booted = True
 
     assert dev.get_status() == DeviceStatus.DEVICE
 
 
 def test_get_status_boot_completed():
     dev, adb = make_device(booting_responses("device", boot_completed="1"))
-    dev.pid = 100
+    dev.booted = True
 
     assert dev.get_status() == DeviceStatus.BOOT_COMPLETED
 
@@ -133,7 +136,7 @@ def test_get_status_boot_completed():
 def test_get_status_offline():
     """offline 来自 stderr，不是 stdout。"""
     dev, adb = make_device(booting_responses("", "offline"))
-    dev.pid = 100
+    dev.booted = True
 
     assert dev.get_status() == DeviceStatus.OFFLINE
 
@@ -144,7 +147,7 @@ def test_get_status_error_when_input_keyevent_raises():
         booting_responses("device"),
         errors={ALT_LEFT: DeviceOfflineError("设备已断开")},
     )
-    dev.pid = 100
+    dev.booted = True
 
     assert dev.get_status() == DeviceStatus.ERORR
 
@@ -155,7 +158,7 @@ def test_get_status_queries_get_state_once_when_answered():
     启动流程里 get_status 最多被调 11 次，每次多一次 adb 往返。
     """
     dev, adb = make_device(booting_responses("device"))
-    dev.pid = 100
+    dev.booted = True
 
     dev.get_status()
 
@@ -167,7 +170,7 @@ def test_get_status_retries_get_state_after_not_found():
     responses = booting_responses()
     responses[GET_STATE] = CmdResult("", "device 'emulator-5556' not found")
     dev, adb = make_device(responses)
-    dev.pid = 100
+    dev.booted = True
 
     assert dev.get_status() == DeviceStatus.ERORR
     assert adb.count(*GET_STATE) == 2
@@ -181,7 +184,7 @@ def test_get_status_retries_get_state_after_not_found():
 
 def test_ensure_ready_returns_immediately_when_already_booted():
     dev, adb = make_device(booting_responses("device", boot_completed="1"))
-    dev.pid = 100
+    dev.booted = True
 
     assert dev.ensure_ready() is True
     assert dev.launch_count == 0
@@ -198,7 +201,7 @@ def test_ensure_ready_launches_when_not_booted():
 def test_ensure_ready_gives_up_after_the_retry_budget():
     """重试预算耗尽 -> 关掉设备，状态回到 STOP，返回 False。"""
     dev, adb = make_device(booting_responses("device", boot_completed="0"))
-    dev.pid = 100
+    dev.booted = True
 
     assert dev.ensure_ready() is False
     assert dev.close_count == 1
@@ -216,7 +219,7 @@ def test_is_timeout_true_when_adb_call_times_out():
     dev, adb = make_device(
         errors={("shell", "ps"): subprocess.TimeoutExpired("adb", 3)}
     )
-    dev.pid = 100
+    dev.booted = True
 
     assert dev.is_timeout(seconds=3) is True
     assert adb.commands("run_cmd") == [("shell", "ps")]
@@ -224,7 +227,7 @@ def test_is_timeout_true_when_adb_call_times_out():
 
 def test_is_timeout_false_when_adb_answers():
     dev, adb = make_device({("shell", "ps"): CmdResult("USER PID", "")})
-    dev.pid = 100
+    dev.booted = True
 
     assert dev.is_timeout(seconds=3) is False
 
@@ -247,7 +250,7 @@ def test_is_crashed_true_when_home_key_never_responds():
 
 def test_is_crashed_false_when_home_key_works():
     dev, adb = make_device({HOME: CmdResult("", "")})
-    dev.pid = 100
+    dev.booted = True
 
     assert dev.is_crashed() is False
 
@@ -294,14 +297,12 @@ def ld_row(index, pid, vm_pid, width=540, height=960, dpi=240):
     return f"{index},雷电模拟器,0,0,1,{pid},{vm_pid},{width},{height},{dpi}"
 
 
-def test_ld_is_boot_requires_both_pids():
-    """雷电必须 PID 和 VBox PID 同时存在才算完全启动。"""
+def test_ld_probe_state_requires_both_pids():
+    """雷电不给状态字符串，只能靠两个进程同时存在来判定。"""
     console = FakeLDConsole([ld_row(0, 1111, 2222)])
-    dev = LDPlayer(make_info(index="0"), adb=FakeADB(), console=console)
 
-    assert dev.is_boot() is True
-    assert dev.get_pid() == 1111
-    assert dev.vm_pid == 2222
+    assert console.probe_state("0") == DeviceStatus.BOOT
+    assert console.get_pids("0") == Pids(1111, 2222)
 
 
 def test_ld_pids_come_from_the_right_columns():
@@ -311,29 +312,21 @@ def test_ld_pids_come_from_the_right_columns():
     实际上只检查了 VBox 进程，界面进程死掉时也会判定为已启动。
     """
     console = FakeLDConsole([ld_row(0, 1111, 2222, width=540)])
-    dev = LDPlayer(make_info(index="0"), adb=FakeADB(), console=console)
 
-    dev.is_boot()
-
-    assert dev.get_pid() == 1111  # 第 5 列
-    assert dev.vm_pid == 2222  # 第 6 列，不是 540
+    assert console.get_pids("0") == Pids(1111, 2222)
 
 
-def test_ld_is_boot_false_when_vm_pid_missing():
+def test_ld_probe_state_stop_when_vm_pid_missing():
     console = FakeLDConsole([ld_row(0, 1111, -1)])
-    dev = LDPlayer(make_info(index="0"), adb=FakeADB(), console=console)
 
-    assert dev.is_boot() is False
-    assert dev.vm_pid == -1
+    assert console.probe_state("0") == DeviceStatus.STOP
 
 
-def test_ld_is_boot_false_when_ui_pid_missing():
+def test_ld_probe_state_stop_when_ui_pid_missing():
     """界面进程死了但 VM 还活着 —— 这正是「半启动」，必须判为未启动。"""
     console = FakeLDConsole([ld_row(0, -1, 2222)])
-    dev = LDPlayer(make_info(index="0"), adb=FakeADB(), console=console)
 
-    assert dev.is_boot() is False
-    assert dev.get_pid() == -1
+    assert console.probe_state("0") == DeviceStatus.STOP
 
 
 class FakeNoxConsole(NoxConsole):
@@ -379,16 +372,16 @@ def test_device_console_rejects_incomplete_adapter():
 def test_nox_get_pids_returns_minus_one_for_unknown_index():
     console = FakeNoxConsole([nox_row(1, 3333, 4444)])
 
-    assert console.get_pids("9") == (-1, -1)
+    assert console.get_pids("9") == Pids(-1, -1)
 
 
 def test_nox_get_pids_returns_minus_one_when_stopped():
     console = FakeNoxConsole([nox_row(1, -1, -1)])
 
-    assert console.get_pids("1") == (-1, -1)
+    assert console.get_pids("1") == Pids(-1, -1)
 
 
-def test_nox_is_boot_reads_both_pids_in_the_right_columns():
+def test_nox_get_pids_reads_both_pids_in_the_right_columns():
     """回归测试：pid / vm_pid 曾经被装反，且 vm_pid 是 str。
 
     Console 最后一列是 NoxVMHandle.exe（与 adb 通信的 VM 进程），倒数第二列是
@@ -397,36 +390,28 @@ def test_nox_is_boot_reads_both_pids_in_the_right_columns():
     pid 比较，str 永远比不相等，那个 while 循环出不来。
     """
     console = FakeNoxConsole([nox_row(1, 3333, 4444)])
-    dev = NoxPlayer(make_info(index="1"), adb=FakeADB(), console=console)
 
-    dev.is_boot()
-
-    assert dev.get_pid() == 3333  # Nox.exe，界面进程
-    assert dev.vm_pid == 4444  # NoxVMHandle.exe，VM 进程
+    assert console.get_pids("1") == Pids(3333, 4444)
 
 
-def test_nox_vm_pid_is_an_int():
-    """vm_pid 必须是 int，否则 get_serial() 里 psutil 的 pid 比较恒为 False。"""
+def test_nox_get_pids_returns_ints():
+    """必须是 int，否则 get_serial() 里 psutil 的 pid 比较恒为 False。"""
     console = FakeNoxConsole([nox_row(1, 3333, 4444)])
-    dev = NoxPlayer(make_info(index="1"), adb=FakeADB(), console=console)
 
-    dev.is_boot()
+    pids = console.get_pids("1")
 
-    assert isinstance(dev.vm_pid, int)
+    assert isinstance(pids.ui, int) and isinstance(pids.vm, int)
 
 
-def test_nox_is_boot_skips_stopped_instances():
+def test_nox_probe_state_skips_stopped_instances():
     """PID 为 -1 的实例要跳过，不能把别的实例的状态认成自己的。"""
     console = FakeNoxConsole([nox_row(1, -1, -1), nox_row(2, 5555, 6666)])
-    dev = NoxPlayer(make_info(index="2"), adb=FakeADB(), console=console)
 
-    assert dev.is_boot() is True
-    assert dev.get_pid() == 5555
-    assert dev.vm_pid == 6666
+    assert console.probe_state("2") == DeviceStatus.BOOT
+    assert console.get_pids("2") == Pids(5555, 6666)
 
 
-def test_nox_is_boot_false_when_all_stopped():
+def test_nox_probe_state_stop_when_all_stopped():
     console = FakeNoxConsole([nox_row(1, -1, -1)])
-    dev = NoxPlayer(make_info(index="1"), adb=FakeADB(), console=console)
 
-    assert dev.is_boot() is False
+    assert console.probe_state("1") == DeviceStatus.STOP

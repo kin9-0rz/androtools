@@ -52,7 +52,6 @@ class EmulatorSession(ABC):
         self._sleep = sleeper
         self.android_version: int | str = info.version
         self.status = DeviceStatus.STOP
-        self.pid = -1
 
     def __str__(self) -> str:
         return f"{self.info.name}-{self.android_version}"
@@ -157,13 +156,12 @@ class EmulatorSession(ABC):
     #                          interface: 健康检查                                #
     # ------------------------------------------------------------------------ #
 
+    @abstractmethod
     def is_boot(self) -> bool:
-        """模拟器的界面进程是否存在。
+        """模拟器进程是否已经起来了。
 
-        界面进程和 VM 进程是两个不同的进程，只看界面进程只是一个粗略的判断；
-        厂商 Console 能同时拿到两个 PID，会覆盖这个方法。
-        """
-        return self.pid != -1
+        每个厂商的判断依据不同（进程 PID、状态字符串、窗口句柄），所以这是
+        子类的义务，基类不给实现。"""
 
     def is_boot_completed(self) -> bool:
         return self.read_prop("sys.boot_completed") == "1"
@@ -185,9 +183,6 @@ class EmulatorSession(ABC):
         except subprocess.TimeoutExpired:
             return True
         return False
-
-    def get_pid(self) -> int:
-        return self.pid
 
     # ------------------------------------------------------------------------ #
     #                        interface: 应用管理（默认走 adb）                     #
@@ -223,8 +218,8 @@ class EmulatorSession(ABC):
 class ConsoleSession(EmulatorSession):
     """由厂商 Console 驱动的会话。
 
-    属性读取和应用的启停都走 Console —— 雷电和夜神在开机阶段 adb 还连不上，
-    走 adb 会拿不到属性、也起不了应用。新增一个厂商只需要写
+    起来没有、属性读取、应用的启停都走 Console —— 雷电、夜神、MuMu 在开机阶段
+    adb 都还连不上，走 adb 拿不到属性、也起不了应用。新增一个厂商只需要写
     MumuConsole(DeviceConsole) 和 MumuPlayer(ConsoleSession) 两个 adapter。
     """
 
@@ -238,6 +233,9 @@ class ConsoleSession(EmulatorSession):
         super().__init__(info, adb=adb, sleeper=sleeper)
         self.index = info.index
         self.console = console
+
+    def is_boot(self) -> bool:
+        return self.console.probe_state(self.index) == DeviceStatus.BOOT
 
     def read_prop(self, prop: str) -> str:
         return self.console.getprop(self.index, prop)

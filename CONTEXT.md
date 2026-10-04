@@ -11,12 +11,8 @@
 _Avoid_: 模拟器（模拟器只是 Device 的一种宿主形态）、设备类型
 
 **Emulator**:
-由第三方应用提供的 Android 虚拟设备宿主程序（雷电、夜神）。用户在宿主机上手动安装并启动它；它启动之后，在本库眼中就只是一个 Device —— 和真机没有区别。
+由第三方应用提供的 Android 虚拟设备宿主程序（雷电、夜神、MuMu）。用户在宿主机上手动安装并启动它；它启动之后，在本库眼中就只是一个 Device —— 和真机没有区别。
 _Avoid_: Device、模拟器实例
-
-**Emulator Vendor**:
-模拟器宿主程序的供应方。每个厂商决定了 Console 的命令行方言，因此也决定了「哪些操作只能走 Console、无法通过 adb 完成」。
-_Avoid_: DeviceType（`core` 里的那个枚举专指厂商）
 
 ### 寻址
 
@@ -33,8 +29,16 @@ adb 选择目标的方式 —— 默认 / 按 Serial / 按 transport id。这是
 _Avoid_: DeviceType（`android_sdk/platform_tools.py` 里有一个同名的枚举专指这个，与「厂商」完全无关 —— 两个同名词是本库历史上最大的术语陷阱）
 
 **Console**:
-厂商随模拟器一起提供的命令行工具（`ldconsole.exe`、`NoxConsole.exe`），用于启动和关闭模拟器，以及执行无法通过 adb 完成的操作。
+厂商随模拟器一起提供的命令行工具（`ldconsole.exe`、`NoxConsole.exe`、`MuMuManager.exe`），用于启动和关闭模拟器，以及执行无法通过 adb 完成的操作。
 _Avoid_: 控制台、ADB（两者是不同的命令行，互不替代）
+
+**Emulator Vendor**:
+模拟器宿主程序的供应方。每个厂商决定了 Console 的命令行方言 —— 有的输出 CSV，有的输出 JSON —— 因此也决定了「哪些操作只能走 Console、无法通过 adb 完成」。新增一个厂商只需要写两个 adapter，不改已有代码。
+_Avoid_: DeviceType（`core` 里的那个枚举专指厂商）
+
+**启动判定**:
+判断模拟器是否已经起来。厂商给出的信号强度差别很大：MuMu 直接给 `player_state` 字符串，而雷电和夜神不给状态、只能靠两个进程 PID 推断。因此 Console interface 上暴露的是状态而不是 PID —— PID 只是具体 Console 的内部细节。
+_Avoid_: 启动状态、PID 判断（说清是哪一种）
 
 ### 状态
 

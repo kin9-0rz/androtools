@@ -6,7 +6,7 @@ from typing import Callable
 import psutil
 
 from androtools.android_sdk.platform_tools import AdbRunner
-from androtools.core.device import DeviceConsole, DeviceInfo, Pids
+from androtools.core.device import DeviceConsole, DeviceInfo, DeviceStatus, Pids
 from androtools.core.session import ConsoleSession
 
 
@@ -35,6 +35,13 @@ class NoxConsole(DeviceConsole):
             return Pids(int(parts[-2]), int(parts[-1]))
 
         return Pids(-1, -1)
+
+    def probe_state(self, idx: int | str) -> DeviceStatus:
+        """夜神不给状态字符串，只能看两个进程在不在。"""
+        pids = self.get_pids(idx)
+        if pids.ui == -1 or pids.vm == -1:
+            return DeviceStatus.STOP
+        return DeviceStatus.BOOT
 
     def list_devices(self) -> str:
         """列出所有模拟器信息
@@ -89,6 +96,9 @@ class NoxConsole(DeviceConsole):
 
 
 class NoxPlayer(ConsoleSession):
+    #: 收窄到具体类型，这样 get_serial 才能用 NoxConsole 自己的 get_pids
+    console: NoxConsole
+
     def __init__(
         self,
         info: DeviceInfo,
@@ -102,17 +112,6 @@ class NoxPlayer(ConsoleSession):
             adb=adb,
             sleeper=sleeper,
         )
-        self.pid = -1
-        """Nox.exe，界面进程 PID"""
-        self.vm_pid = -1
-        """NoxVMHandle.exe，负责与 adb 通信的 VM 进程 PID"""
-
-    def is_boot(self) -> bool:
-        """判断模拟器是否启动：界面进程和 VM 进程都要在。"""
-        pids = self.console.get_pids(self.index)
-        self.pid = pids.ui
-        self.vm_pid = pids.vm
-        return self.pid != -1 and self.vm_pid != -1
 
     def launch(self) -> None:
         self.console.launch_device(self.index)
@@ -131,19 +130,22 @@ class NoxPlayer(ConsoleSession):
         return self.get_status()
 
     def _kill_self(self) -> None:
-        if self.pid == -1:
+        """quit 之后如果界面进程还在，硬杀掉。"""
+        pid = self.console.get_pids(self.index).ui
+        if pid == -1:
             return
 
-        if psutil.pid_exists(self.pid):
-            psutil.Process(self.pid).kill()
+        if psutil.pid_exists(pid):
+            psutil.Process(pid).kill()
 
     def get_serial(self) -> None:
         """夜神启动后端口会变，序列号要在启动过程中反查出来。"""
+        vm_pid = self.console.get_pids(self.index).vm
         ports = set()
         while True:
             net_con = psutil.net_connections()
             for con_info in net_con:
-                if con_info.pid == self.vm_pid and con_info.status == "LISTEN":
+                if con_info.pid == vm_pid and con_info.status == "LISTEN":
                     ports.add(con_info.laddr.port)  # type: ignore[union-attr]
 
             if len(ports) > 0:
