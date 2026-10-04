@@ -13,7 +13,7 @@ import pytest
 
 from helpers import make_emulator_info
 from androtools.cmd.result import CmdResult
-from androtools.core.device import DeviceConsole, DeviceStatus
+from androtools.core.device import EmulatorConsole, DeviceStatus
 from androtools.core.mumu import MumuConsole, MumuPlayer
 from androtools.testing import FakeADB
 
@@ -219,7 +219,7 @@ def test_non_json_output_is_reported_rather_than_swallowed():
 
 
 def test_mumu_is_a_third_adapter_on_the_same_seams():
-    assert issubclass(MumuConsole, DeviceConsole)
+    assert issubclass(MumuConsole, EmulatorConsole)
     assert MumuConsole.__abstractmethods__ == frozenset()
     assert issubclass(MumuPlayer, type(make_player(console())))
 

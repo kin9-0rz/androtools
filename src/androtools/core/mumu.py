@@ -5,11 +5,11 @@ import time
 from typing import Any, Callable
 
 from androtools.android_sdk.platform_tools import AdbRunner
-from androtools.core.device import DeviceConsole, DeviceStatus, EmulatorInfo
+from androtools.core.device import EmulatorConsole, DeviceStatus, EmulatorInfo
 from androtools.core.session import ConsoleSession
 
 
-class MumuConsole(DeviceConsole):
+class MumuConsole(EmulatorConsole):
     """MuMuManager.exe —— MuMu 的控制台。
 
     和雷电、夜神完全不同的方言：子命令 + `-v <vmindex>`，输出 **JSON**。
@@ -26,8 +26,8 @@ class MumuConsole(DeviceConsole):
     三件和另外两家不一样、值得记住的事：
 
     1. 未启动的实例把 pid / player_state / adb_port **整个键省略**，不是给 -1。
-    2. `player_state` 和 `is_android_started` 直接给出启动状态，不需要像雷电和
-       夜神那样拿两个进程 PID 推断。
+    2. 它还给出 player_state 和 is_android_started —— 比雷电和夜神好得多，后两家
+       不给状态字符串，只能靠两个进程 PID 推断。
     3. `adb` 子命令是**受限的便利封装**（go_home / key_delete / input_text），
        没有原始命令透传 —— 所以 AndroidShell 走的是 MuMu 自带的 adb.exe，
        serial 由 `serial()` 拼出来。
@@ -66,7 +66,12 @@ class MumuConsole(DeviceConsole):
             ) from e
 
     def probe_state(self, idx: int | str) -> DeviceStatus:
-        """MuMu 直接给启动状态，不用像雷电和夜神那样推断。"""
+        """MuMu 直接给出进程状态，不需要像雷电和夜神那样推断。
+
+        用的是 is_process_started 而不是 player_state：probe_state 只粗略回答
+        「进程在不在」，而 player_state 的取值我们没有穷举过（MuMu 换版本可能
+        加新值），拿它做判断反而脆。开机是否完成由 session 用 adb 继续判定。
+        """
         info = self.instance(idx)
         if not info.get("is_process_started"):
             return DeviceStatus.STOP

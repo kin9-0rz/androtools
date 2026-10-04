@@ -8,7 +8,7 @@ import pytest
 from helpers import make_device_info, make_emulator_info
 
 from androtools.cmd.result import CmdResult
-from androtools.core.device import DeviceStatus
+from androtools.core.device import DeviceStatus, Pids
 from androtools.core.session import Device, EmulatorSession
 from androtools.testing import FakeADB
 
@@ -197,9 +197,34 @@ def test_identity_is_serial_plus_adb_path():
     )
 
 
+def test_comparing_with_a_non_device_is_false_not_an_error():
+    """返回 NotImplemented 让 Python 落到「不相等」，而不是抛异常或意外为真。"""
+    assert (make_device_info(serial="ABC") == "not a device") is False
+    assert (make_device_info(serial="ABC") != 42) is True
+
+
 def test_emulator_info_keeps_the_console_fields_but_inherits_the_identity_rule():
     """index / console_path 是模拟器独有的信息，不参与身份判定。"""
     assert make_emulator_info(index="3") == make_emulator_info(index="9")
+
+
+def test_a_rewritten_serial_means_a_different_identity():
+    """夜神和 MuMu 在启动流程里会改写 info.serial —— 改写前后是两个对象。
+
+    想要「同一台设备的前后身份」得用 serial 之外的键自己维护。
+    """
+    before = make_device_info(serial="emulator-5554")
+    after = make_device_info(serial="127.0.0.1:16416")
+
+    assert before != after
+
+
+def test_pids_is_running_requires_both_processes():
+    """只看界面进程会把「半启动」误判成已启动 —— 雷电和夜神都栽在这。"""
+    assert Pids(1111, 2222).is_running() is True
+    assert Pids(-1, -1).is_running() is False
+    assert Pids(1111, -1).is_running() is False
+    assert Pids(-1, 2222).is_running() is False
 
 
 def test_emulator_info_repr_shows_the_index():

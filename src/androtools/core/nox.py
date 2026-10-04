@@ -6,11 +6,11 @@ from typing import Callable
 import psutil
 
 from androtools.android_sdk.platform_tools import AdbRunner
-from androtools.core.device import DeviceConsole, DeviceStatus, EmulatorInfo, Pids
+from androtools.core.device import EmulatorConsole, DeviceStatus, EmulatorInfo, Pids
 from androtools.core.session import ConsoleSession
 
 
-class NoxConsole(DeviceConsole):
+class NoxConsole(EmulatorConsole):
     def __init__(self, path=shutil.which("NoxConsole.exe")):
         super().__init__(path)
 
@@ -38,8 +38,7 @@ class NoxConsole(DeviceConsole):
 
     def probe_state(self, idx: int | str) -> DeviceStatus:
         """夜神不给状态字符串，只能看两个进程在不在。"""
-        pids = self.get_pids(idx)
-        if pids.ui == -1 or pids.vm == -1:
+        if not self.get_pids(idx).is_running():
             return DeviceStatus.STOP
         return DeviceStatus.BOOT
 

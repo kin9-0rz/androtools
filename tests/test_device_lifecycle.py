@@ -16,7 +16,7 @@ from androtools.android_sdk.platform_tools import DeviceOfflineError
 from androtools.cmd.result import CmdResult
 from helpers import make_emulator_info
 from androtools.core.device import (
-    DeviceConsole,
+    EmulatorConsole,
     DeviceStatus,
     Pids,
 )
@@ -336,16 +336,16 @@ def nox_row(index, nox_pid, vm_pid):
 
 def test_both_consoles_satisfy_the_same_interface():
     """雷电和夜神是同一个 interface 上的两个 adapter，且都不再有 abstract 残留。"""
-    assert issubclass(LDConsole, DeviceConsole)
-    assert issubclass(NoxConsole, DeviceConsole)
+    assert issubclass(LDConsole, EmulatorConsole)
+    assert issubclass(NoxConsole, EmulatorConsole)
     assert LDConsole.__abstractmethods__ == frozenset()
     assert NoxConsole.__abstractmethods__ == frozenset()
 
 
 def test_device_console_rejects_incomplete_adapter():
-    """回归测试：DeviceConsole 曾经没继承 ABC，@abstractmethod 完全不生效。"""
+    """回归测试：EmulatorConsole 曾经没继承 ABC，@abstractmethod 完全不生效。"""
 
-    class HalfConsole(DeviceConsole):
+    class HalfConsole(EmulatorConsole):
         def launch_device(self, idx):
             pass
 

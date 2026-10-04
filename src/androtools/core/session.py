@@ -19,7 +19,7 @@ from func_timeout import FunctionTimedOut, func_timeout
 from androtools import logger
 from androtools.android_sdk.platform_tools import ADB, AdbRunner
 from androtools.core.constants import KeyEvent
-from androtools.core.device import DeviceConsole, DeviceInfo, DeviceStatus, EmulatorInfo
+from androtools.core.device import EmulatorConsole, DeviceInfo, DeviceStatus, EmulatorInfo
 from androtools.core.shell import AndroidShell
 
 # 状态判定用哪颗按键探测、启动失败重试多少次、崩溃探测等多久 —— 这些都是
@@ -257,14 +257,14 @@ class EmulatorSession(Device, ABC):
 class ConsoleSession(EmulatorSession):
     """由厂商 Console 驱动的会话。
 
-    新增一个厂商只需要写两个 adapter：一个 Console 实现 DeviceConsole，一个
+    新增一个厂商只需要写两个 adapter：一个 Console 实现 EmulatorConsole，一个
     Player 实现本类。已有的代码一行都不用改。
     """
 
     def __init__(
         self,
         info: EmulatorInfo,
-        console: DeviceConsole,
+        console: EmulatorConsole,
         adb: AdbRunner | None = None,
         sleeper: Callable[[float], None] = time.sleep,
     ) -> None:

@@ -5,11 +5,11 @@ from typing import Callable
 
 from androtools import logger
 from androtools.android_sdk.platform_tools import AdbRunner
-from androtools.core.device import DeviceConsole, DeviceStatus, EmulatorInfo, Pids
+from androtools.core.device import EmulatorConsole, DeviceStatus, EmulatorInfo, Pids
 from androtools.core.session import ConsoleSession
 
 
-class LDConsole(DeviceConsole):
+class LDConsole(EmulatorConsole):
     """使用 ldconsole.exe 对模拟器进行管理"""
 
     def __init__(self, path=shutil.which("ldconsole.exe")):
@@ -40,8 +40,7 @@ class LDConsole(DeviceConsole):
 
     def probe_state(self, idx: int | str) -> DeviceStatus:
         """雷电不给状态字符串，只能看两个进程在不在。"""
-        pids = self.get_pids(idx)
-        if pids.ui == -1 or pids.vm == -1:
+        if not self.get_pids(idx).is_running():
             return DeviceStatus.STOP
         return DeviceStatus.BOOT
 
