@@ -2,7 +2,7 @@
 [project]
 name = "androtools"
 version = "2.0.0"
-description = "一个对Android SDK相关的命令封装的库"
+description = "对Android SDK、第三方模拟器命令行工具、以及通过adb连接的Android设备的封装"
 authors = [{ name = "kin9-0rz", email = "kin9-0rz@outlook.com" }]
 readme = "README.md"
 license = "MIT"
@@ -20,9 +20,6 @@ dev = [
 python_version = "3.10"
 files = ["src/androtools", "tests"]
 ignore_missing_imports = true
-
-[project.scripts]
-androtools = "androtools.__main__:main"
 
 [tool.pytest.ini_options]
 markers = [
