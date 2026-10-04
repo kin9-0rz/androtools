@@ -33,5 +33,7 @@ markers = [
 addopts = '-m "not integration"'
 
 [build-system]
-requires = ["uv_build>=0.9.17,<0.10.0"]
+# 上限是 uv 自己要求的（没有上限它会警告 sdist 不可复现），但要覆盖当前 uv 版本 ——
+# 之前的 <0.10.0 就是因为不含 0.12 而被警告。uv 发新版时这里需要跟着抬。
+requires = ["uv-build>=0.9.17,<0.13"]
 build-backend = "uv_build"

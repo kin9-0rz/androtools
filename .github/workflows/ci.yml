@@ -17,10 +17,12 @@ jobs:
         python: ["3.10", "3.13"]
 
     steps:
-      - uses: actions/checkout@v4
+      # v5 / v7 是各自第一个用 node24 的 major（GitHub 已弃用 node20）。
+      - uses: actions/checkout@v5
+
 
       - name: 安装 uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           python-version: ${{ matrix.python }}
