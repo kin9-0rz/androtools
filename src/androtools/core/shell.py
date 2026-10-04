@@ -5,7 +5,7 @@
 install_app 按 SDK 版本决定是否申请运行时权限、run_app 从 dumpsys 里解析主界面
 组件、pidof 在没有 pidof 命令时回退解析 ps 输出。
 
-Serial 在每次调用时从 DeviceInfo 现取，不是构造时固定的 —— 夜神模拟器在启动
+Serial 在每次调用时从 DeviceInfo 现取，不是构造时固定的 —— MuMu 在启动
 过程中会改写 DeviceInfo.serial。
 """
 

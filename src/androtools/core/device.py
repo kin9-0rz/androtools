@@ -16,9 +16,9 @@ class Pids(NamedTuple):
     """
 
     ui: int
-    """界面进程的 PID，雷电是 dnplayer.exe、夜神是 Nox.exe"""
+    """界面进程的 PID，雷电是 dnplayer.exe"""
     vm: int
-    """VM 进程的 PID，雷电是 VBox、夜神是 NoxVMHandle.exe；负责与 adb 通信"""
+    """VM 进程的 PID，雷电是 VBox；负责与 adb 通信"""
 
     def is_running(self) -> bool:
         """两个进程都在才算完全启动。只看界面进程会把「半启动」误判成已启动。"""
@@ -39,9 +39,9 @@ class DeviceInfo:
         不比 name —— 模拟器的名字用户可以改。也不比 index / console_path：
         那是模拟器的属性，不是这台设备的身份。
 
-        serial 本身要参与判定，因为它是 adb 唯一的寻址依据。注意夜神和 MuMu
-        会在启动流程里改写它，所以改写之后是两个不同的对象 —— 想要「同一台设备
-        的前后身份」，用 serial 之外的键自己维护。
+        serial 本身要参与判定，因为它是 adb 唯一的寻址依据。注意 MuMu 会在启动
+        流程里改写它，所以改写之后是两个不同的对象 —— 想要「同一台设备的前后
+        身份」，用 serial 之外的键自己维护。
         """
         if not isinstance(other, DeviceInfo):
             return NotImplemented
@@ -93,12 +93,12 @@ class DeviceStatus(Enum):
 class EmulatorConsole(CMD, ABC):
     """模拟器控制台：启动、关闭、重启模拟器，探测它起来没有，以及属性和应用操作。
 
-    厂商的命令行方言（雷电的 `--index N`、夜神的 `-index:N`、MuMu 的
-    `-v N` 加 JSON 输出）止步于这个 interface 后面 —— session 不应该知道这些。
+    厂商的命令行方言（雷电的 `--index N`、MuMu 的 `-v N` 加 JSON 输出）
+    止步于这个 interface 后面 —— session 不应该知道这些。
 
     关键设计：console 只回答「起来了吗」这个粗问题（probe_state），由 session
     再用 adb 细分出 DEVICE / BOOT_COMPLETED / OFFLINE / ERORR。厂商的信号强度
-    差别很大 —— 雷电和夜神要靠两个进程 PID 推断，MuMu 直接给 player_state 字符串
+    差别很大 —— 雷电要靠两个进程 PID 推断，MuMu 直接给进程状态
     —— 所以 interface 上暴露的是状态，不是 PID。Pids 只在具体 console 内部使用。
 
     这里只放 session 真正需要的能力。厂商特有的（locate、setprop、install_app 等）

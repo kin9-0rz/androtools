@@ -142,7 +142,7 @@ class Device:
     def is_crashed(self) -> bool:
         """目标是否没响应。"""
         try:
-            # FIXME - 夜神模拟器存在点击home按键卡死。
+            # FIXME - 有模拟器点 home 键会卡死，那时还没有更好的探测方式。
             func_timeout(_CRASH_PROBE_TIMEOUT, self.shell.home)
         except FunctionTimedOut:
             return True

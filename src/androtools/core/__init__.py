@@ -8,7 +8,6 @@ from androtools.core.device import (
 )
 from androtools.core.ld import LDConsole, LDPlayer
 from androtools.core.mumu import MumuConsole, MumuPlayer
-from androtools.core.nox import NoxConsole, NoxPlayer
 from androtools.core.session import ConsoleSession, Device, EmulatorSession
 from androtools.core.shell import AndroidShell
 
@@ -27,7 +26,5 @@ __all__ = [
     "LDPlayer",
     "MumuConsole",
     "MumuPlayer",
-    "NoxConsole",
-    "NoxPlayer",
     "Pids",
 ]

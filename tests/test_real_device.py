@@ -229,7 +229,7 @@ def test_emulator_info_keeps_the_console_fields_but_inherits_the_identity_rule()
 
 
 def test_a_rewritten_serial_means_a_different_identity():
-    """夜神和 MuMu 在启动流程里会改写 info.serial —— 改写前后是两个对象。
+    """MuMu 在启动流程里会改写 info.serial —— 改写前后是两个对象。
 
     想要「同一台设备的前后身份」得用 serial 之外的键自己维护。
     """
@@ -240,7 +240,7 @@ def test_a_rewritten_serial_means_a_different_identity():
 
 
 def test_pids_is_running_requires_both_processes():
-    """只看界面进程会把「半启动」误判成已启动 —— 雷电和夜神都栽在这。"""
+    """只看界面进程会把「半启动」误判成已启动 —— 雷电就栽在这。"""
     assert Pids(1111, 2222).is_running() is True
     assert Pids(-1, -1).is_running() is False
     assert Pids(1111, -1).is_running() is False

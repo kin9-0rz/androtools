@@ -51,7 +51,7 @@ def test_sdk_is_minus_one_when_the_device_does_not_answer():
 
 
 def test_serial_follows_the_info_object():
-    """夜神在启动过程中会改写 DeviceInfo.serial，shell 必须每次现取。"""
+    """MuMu 在启动过程中会改写 DeviceInfo.serial，shell 必须每次现取。"""
     info = make_emulator_info()
     shell, _ = make_shell(info=info)
 

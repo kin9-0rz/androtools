@@ -21,8 +21,8 @@ from androtools.core.device import (
     Pids,
 )
 from androtools.core.ld import LDConsole, LDPlayer
-from androtools.core.mumu import MumuPlayer
-from androtools.core.nox import NoxConsole, NoxPlayer
+from androtools.core.mumu import MumuConsole, MumuPlayer
+
 from androtools.core.session import EmulatorSession
 from androtools.core.shell import AndroidShell
 from androtools.testing import FakeADB
@@ -327,33 +327,12 @@ def test_ld_probe_state_stop_when_ui_pid_missing():
     assert console.probe_state("0") == DeviceStatus.STOP
 
 
-class FakeNoxConsole(NoxConsole):
-    """list 输出：索引,名称,标题,工具栏句柄,Nox.exe PID,NoxVMHandle.exe PID
-
-    同样故意不调 super().__init__，理由同 FakeLDConsole。
-    """
-
-    def __init__(self, lines):
-        self.lines = lines
-
-    def list_devices(self) -> str:
-        return "\n".join(self.lines)
-
-
-def nox_row(index, nox_pid, vm_pid):
-    """NoxConsole.list 的列：索引,名称,标题,工具栏句柄,Nox.exe PID,NoxVMHandle PID
-
-    注意最后一列是 NoxVMHandle.exe —— 即与 adb 通信的那个 VM 进程。
-    """
-    return f"{index},name,title,0,{nox_pid},{vm_pid}"
-
-
 def test_both_consoles_satisfy_the_same_interface():
-    """雷电和夜神是同一个 interface 上的两个 adapter，且都不再有 abstract 残留。"""
+    """雷电和 MuMu 是同一个 interface 上的两个 adapter，且都不再有 abstract 残留。"""
     assert issubclass(LDConsole, EmulatorConsole)
-    assert issubclass(NoxConsole, EmulatorConsole)
+    assert issubclass(MumuConsole, EmulatorConsole)
     assert LDConsole.__abstractmethods__ == frozenset()
-    assert NoxConsole.__abstractmethods__ == frozenset()
+    assert MumuConsole.__abstractmethods__ == frozenset()
 
 
 def test_device_console_rejects_incomplete_adapter():
@@ -373,55 +352,7 @@ def test_every_player_can_be_built_from_info_alone():
     各厂商 Player 各自自建 Console，所以 console 必须可选。之前的测试全都注入了
     fake console，从来没走过默认构造这条路径，所以这个回归漏了过去。
     """
-    for cls in (LDPlayer, NoxPlayer, MumuPlayer):
+    for cls in (LDPlayer, MumuPlayer):
         params = inspect.signature(cls.__init__).parameters.values()
         required = [p.name for p in params if p.default is inspect.Parameter.empty]
         assert required == ["self", "info"], f"{cls.__name__} 的必需参数是 {required}"
-
-
-def test_nox_get_pids_returns_minus_one_for_unknown_index():
-    console = FakeNoxConsole([nox_row(1, 3333, 4444)])
-
-    assert console.get_pids("9") == Pids(-1, -1)
-
-
-def test_nox_get_pids_returns_minus_one_when_stopped():
-    console = FakeNoxConsole([nox_row(1, -1, -1)])
-
-    assert console.get_pids("1") == Pids(-1, -1)
-
-
-def test_nox_get_pids_reads_both_pids_in_the_right_columns():
-    """回归测试：pid / vm_pid 曾经被装反，且 vm_pid 是 str。
-
-    Console 最后一列是 NoxVMHandle.exe（与 adb 通信的 VM 进程），倒数第二列是
-    Nox.exe（界面进程）。旧代码把最后一列写进 self.pid、把 Nox.exe 写进
-    self.vm_pid，且存成 str —— 而 get_serial() 拿 vm_pid 和 psutil 返回的 int
-    pid 比较，str 永远比不相等，那个 while 循环出不来。
-    """
-    console = FakeNoxConsole([nox_row(1, 3333, 4444)])
-
-    assert console.get_pids("1") == Pids(3333, 4444)
-
-
-def test_nox_get_pids_returns_ints():
-    """必须是 int，否则 get_serial() 里 psutil 的 pid 比较恒为 False。"""
-    console = FakeNoxConsole([nox_row(1, 3333, 4444)])
-
-    pids = console.get_pids("1")
-
-    assert isinstance(pids.ui, int) and isinstance(pids.vm, int)
-
-
-def test_nox_probe_state_skips_stopped_instances():
-    """PID 为 -1 的实例要跳过，不能把别的实例的状态认成自己的。"""
-    console = FakeNoxConsole([nox_row(1, -1, -1), nox_row(2, 5555, 6666)])
-
-    assert console.probe_state("2") == DeviceStatus.BOOT
-    assert console.get_pids("2") == Pids(5555, 6666)
-
-
-def test_nox_probe_state_stop_when_all_stopped():
-    console = FakeNoxConsole([nox_row(1, -1, -1)])
-
-    assert console.probe_state("1") == DeviceStatus.STOP

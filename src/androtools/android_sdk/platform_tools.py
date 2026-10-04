@@ -32,7 +32,7 @@ class AdbRunner(Protocol):
     子类，而其中多数无人使用、无法验证。开在这里则 ADB 天然满足 interface，
     真实实现与 FakeADB 两个 adapter 就足以让 seam 成立。
 
-    serial 保留在 interface 上是有意的：它对绝大多数调用是同一个值，但夜神
+    serial 保留在 interface 上是有意的：它对绝大多数调用是同一个值，但 MuMu
     模拟器在启动过程中会改写 DeviceInfo.serial，测试和调用方都需要看到
     「当前用的是哪个 serial」。
 
