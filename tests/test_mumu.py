@@ -13,6 +13,7 @@ import pytest
 
 from helpers import make_emulator_info
 from androtools.cmd.result import CmdResult
+from androtools.core.constants import KeyEvent
 from androtools.core.device import EmulatorConsole, DeviceStatus
 from androtools.core.mumu import MumuConsole, MumuPlayer
 from androtools.testing import FakeADB
@@ -72,6 +73,8 @@ def console(**overrides) -> ScriptedMumuConsole:
         "info -v 0": STOPPED,
         "info -v 9": NO_SUCH_INSTANCE,
         "sh -v 1 -c getprop ro.build.version.sdk": "32",
+        # 具体的键要排在通用模式前面，否则 "sh -v 1 -c getprop" 会先命中
+        "sh -v 1 -c getprop sys.boot_completed": "1",
         "sh -v 1 -c getprop": "[ro.product.model]: [A12]",
         "sh -v 0 -c getprop ro.build.version.sdk": VM_NOT_RUNNING,
         "control -v 1 app launch": {"errcode": 0},
@@ -84,14 +87,16 @@ def console(**overrides) -> ScriptedMumuConsole:
     return ScriptedMumuConsole(responses)
 
 
-def make_player(mumu: MumuConsole, index: str = "1") -> MumuPlayer:
+def make_player(mumu: MumuConsole, index: str = "1", adb=None) -> MumuPlayer:
     info = make_emulator_info(
         index=index,
         serial=None,
         name="A12",
         console_path="MuMuManager.exe",
     )
-    return MumuPlayer(info, adb=FakeADB(), sleeper=lambda _s: None, console=mumu)
+    return MumuPlayer(
+        info, adb=FakeADB() if adb is None else adb, sleeper=lambda _s: None, console=mumu
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -216,6 +221,118 @@ def test_non_json_output_is_reported_rather_than_swallowed():
 # --------------------------------------------------------------------------- #
 # seam 一致性
 # --------------------------------------------------------------------------- #
+
+
+# --------------------------------------------------------------------------- #
+# ensure_connected —— MuMuManager 报的地址必须真的 connect 过才存在
+# --------------------------------------------------------------------------- #
+
+# 实测（两台 MuMu：index 0 = A15/Android 15，index 1 = A12/Android 12）：
+# MuMu 会自己往 adb server 注册一个 emulator-555X，而 MuMuManager 报的
+# 127.0.0.1:<adb_port> 默认并不在 adb devices 里 —— 要 connect 之后才出现。
+# 而那个 emulator-555X 跟雷电抢同一个号段：MuMu index 1 占住了 emulator-5556，
+# 雷电 index 0 先占住 emulator-5554，于是 MuMu index 0 只剩 tcp 地址可用。
+# 所以只有 127.0.0.1:<adb_port> 是 MuMu 的权威地址。
+
+CONNECTED = CmdResult("connected to 127.0.0.1:16416", "")
+
+
+def test_mumu_connects_when_adb_has_never_seen_the_address():
+    adb = FakeADB(responses={("connect", "127.0.0.1:16416"): CONNECTED}, devices=[])
+    player = make_player(console(), adb=adb)
+
+    assert player.ensure_connected() == "127.0.0.1:16416"
+    assert adb.commands() == [("connect", "127.0.0.1:16416")]
+
+
+def test_mumu_does_not_connect_when_adb_already_knows_the_address():
+    """已经连着还去 connect 是白跑一趟进程。"""
+    adb = FakeADB(
+        responses={("connect", "127.0.0.1:16416"): CONNECTED},
+        devices=[("127.0.0.1:16416", "device", "3")],
+    )
+    player = make_player(console(), adb=adb)
+
+    assert player.ensure_connected() == "127.0.0.1:16416"
+    assert adb.commands() == []
+
+
+def test_mumu_resolves_the_serial_before_connecting():
+    """serial 没给（默认就是 None）时要先向 Console 要地址。"""
+    adb = FakeADB(responses={("connect", "127.0.0.1:16416"): CONNECTED}, devices=[])
+    player = make_player(console(), adb=adb)
+
+    player.ensure_connected()
+
+    assert player.info.serial == "127.0.0.1:16416"
+
+
+def test_mumu_connect_is_not_pinned_to_a_device():
+    """connect 的对象是 adb server，不是某台设备 —— 不能带 -s。
+
+    带了会出两种问题：serial 为空且多设备在线时先撞上 AmbiguousDeviceError；
+    以及 -s 一个还没连上的地址，自相矛盾。
+    """
+    adb = FakeADB(responses={("connect", "127.0.0.1:16416"): CONNECTED}, devices=[])
+    player = make_player(console(), adb=adb)
+    player.refresh_serial()
+
+    player.ensure_connected()
+
+    assert [call.serial for call in adb.calls] == [None]
+
+
+def test_mumu_connect_happens_even_with_several_devices_online():
+    """多设备在线时这条命令依然要发出去 —— 这正是它存在的理由。"""
+    adb = FakeADB(
+        responses={("connect", "127.0.0.1:16416"): CONNECTED},
+        devices=[("emulator-5554", "device", "1"), ("emulator-5556", "device", "2")],
+    )
+    player = make_player(console(), adb=adb)
+
+    player.ensure_connected()
+
+    assert adb.commands() == [("connect", "127.0.0.1:16416")]
+
+
+def test_mumu_gives_up_quietly_when_the_instance_is_not_started():
+    adb = FakeADB(devices=[])
+    player = make_player(console(), index="0", adb=adb)
+
+    with pytest.raises(RuntimeError, match="还没启动"):
+        player.ensure_connected()
+
+
+def test_mumu_get_status_connects_before_probing():
+    """回归风险：从 MuMu 启动器外部启动的实例没人 connect 过，
+    get_status() 会一路判到 ERORR —— 看着像设备坏了，其实只是没连上。"""
+    adb = FakeADB(
+        responses={
+            ("connect", "127.0.0.1:16416"): CONNECTED,
+            ("get-state",): CmdResult("device", ""),
+            ("input", "keyevent", str(KeyEvent.KEYCODE_ALT_LEFT.value)): CmdResult(
+                "", ""
+            ),
+        },
+        devices=[("emulator-5554", "device", "1")],
+    )
+    player = make_player(console(), adb=adb)
+
+    status = player.get_status()
+
+    assert status == DeviceStatus.BOOT_COMPLETED
+    assert adb.commands()[0] == ("connect", "127.0.0.1:16416")
+
+
+def test_mumu_launch_still_connects_after_refreshing_the_serial():
+    """launch 里的那次 connect 不能因为新方法而丢掉。"""
+    adb = FakeADB(responses={("connect", "127.0.0.1:16416"): CONNECTED}, devices=[])
+    player = make_player(console(), adb=adb)
+
+    player.launch()
+
+    assert player.info.serial == "127.0.0.1:16416"
+    assert ("connect", "127.0.0.1:16416") in adb.commands()
 
 
 def test_mumu_is_a_third_adapter_on_the_same_seams():

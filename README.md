@@ -49,7 +49,7 @@ from androtools.core import EmulatorInfo, LDPlayer
 player = LDPlayer(
     EmulatorInfo(
         name="雷电",
-        serial=None,                    # 启动后由控制台决定，见下
+        serial=None,                    # 库会按 MAC 指纹认出来，见下
         adb_path=r"D:\ProgramFiles\LDPlayer9.0.79.2\adb.exe",
         index="0",                      # 厂商 Console 里的编号
         console_path=r"D:\ProgramFiles\LDPlayer9.0.79.2\ldconsole.exe",
@@ -79,7 +79,34 @@ mumu.launch()   # 启动 → 反查 serial → adb connect
 ```
 
 MuMu 启动后 adb 端口会变，`launch()` 会从 Console 查出新的 `serial` 并 `adb connect`。
-如果你自己管理启动流程，记得调 `mumu.refresh_serial()`。
+`adb connect` 不只在 `launch()` 里做 —— 从 MuMu 启动器外部启动、没经过 `launch()`
+的实例，`127.0.0.1:<adb_port>` 默认并不在 `adb devices` 里，库会在用之前补上连接。
+
+## 多开模拟器时 serial 会被认错
+
+雷电和 MuMu 的 serial 都落在 `emulator-5554` 这一段号段里，**两家会撞**。实测两台雷电
++ 两台 MuMu 同时开着时：
+
+| serial | 实际是谁 |
+| --- | --- |
+| `emulator-5554` | 雷电 index 0 |
+| `emulator-5556` | MuMu index 1 —— 正好是雷电 index 1 该去的位置 |
+| `127.0.0.1:16384` / `127.0.0.1:16416` | MuMu（tcp 地址，MuMu 的权威身份） |
+| —— | 雷电 index 1 在 adb 里**根本不出现** |
+
+推出来的 serial 不会「连不上」，它会**合法地连到别人的模拟器**上 —— 连雷电官方的
+`ldconsole adb --index 1` 都会安静地返回 MuMu 那台设备的属性。
+
+所以 `LDPlayer` 在 `serial=None` 时不按 index 算端口，而是用每实例唯一的 **MAC 指纹**
+（雷电实例配置里的 `propertySettings.macAddress`，guest 的 wlan0 上是同一个值）在 adb
+上认自己的那一台，**核不上就报错，绝不猜**。多开雷电和 MuMu 混用时，如果某个实例的
+serial 被对方占了，你会看到明确的报错而不是错误设备的数据。
+
+想手动指定也完全可以，两个厂商都一样：
+
+```python
+EmulatorInfo(..., serial="emulator-5554", ...)   # 显式指定，跳过反查
+```
 
 ### 抓包
 

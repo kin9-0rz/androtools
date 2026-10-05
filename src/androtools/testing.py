@@ -38,6 +38,9 @@ class FakeADB:
             （`run_shell_cmd` 不含 `shell` 前缀）。值是 CmdResult；用 None
             表示「这条命令只需要被记录，不需要响应」。
         errors: 命令元组到异常的映射。命中的命令抛出该异常而不是返回响应。
+        serial_responses: 按 serial 分开的响应。同一条命令发给不同设备要得到
+            不同答案时用它（例如反查是哪台设备）—— 键先比 serial，再退回
+            responses 的通用键。
 
     Examples:
         >>> adb = FakeADB(responses={("get-state",): CmdResult("device", "")})
@@ -52,10 +55,14 @@ class FakeADB:
         responses: Mapping[tuple[str, ...], CmdResult | None] | None = None,
         errors: Mapping[tuple[str, ...], BaseException] | None = None,
         devices: list[tuple[str, str, str]] | None = None,
+        serial_responses: Mapping[str, Mapping[tuple[str, ...], CmdResult]] | None = None,
     ) -> None:
         self._responses = dict(responses or {})
         self._errors = dict(errors or {})
         self._devices = list(devices or [])
+        self._serial_responses = {
+            serial: dict(mapping) for serial, mapping in (serial_responses or {}).items()
+        }
         self.calls: list[AdbCall] = []
 
     def get_devices(self) -> list[tuple[str, str, str]]:
@@ -75,7 +82,7 @@ class FakeADB:
         self, cmd: list[str], serial: str | None = None
     ) -> None:
         self._record("run_shell_cmd_daemon", cmd, serial, None)
-        self._resolve(cmd)
+        self._resolve(cmd, serial)
         return None
 
     def commands(self, method: str | None = None) -> list[tuple[str, ...]]:
@@ -97,12 +104,15 @@ class FakeADB:
     ) -> None:
         self.calls.append(AdbCall(method, list(cmd), serial, timeout))
 
-    def _resolve(self, cmd: list[str]) -> CmdResult | None:
+    def _resolve(self, cmd: list[str], serial: str | None = None) -> CmdResult | None:
         key = tuple(cmd)
+        scoped = self._serial_responses.get(serial or "", {})
+        if key in scoped:
+            return scoped[key]
         if key not in self._responses and key not in self._errors:
             declared = sorted(" ".join(k) for k in (*self._responses, *self._errors))
             raise AssertionError(
-                f"FakeADB 未声明命令 {' '.join(key)}。\n"
+                f"FakeADB 未声明命令 {' '.join(key)}（serial={serial}）。\n"
                 f"已声明：{declared or '（无）'}"
             )
         if key in self._errors:
@@ -113,7 +123,7 @@ class FakeADB:
         self, method: str, cmd: list[str], serial: str | None, timeout: int | None
     ) -> CmdResult:
         self._record(method, cmd, serial, timeout)
-        result = self._resolve(cmd)
+        result = self._resolve(cmd, serial)
         if result is None:
             raise AssertionError(
                 f"{method} 需要一个 CmdResult，但命令 {' '.join(cmd)} "

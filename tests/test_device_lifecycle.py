@@ -12,9 +12,13 @@ import subprocess
 import threading
 import pytest
 
-from androtools.android_sdk.platform_tools import DeviceOfflineError
+from androtools.android_sdk.platform_tools import (
+    AmbiguousDeviceError,
+    DeviceOfflineError,
+)
 from androtools.cmd.result import CmdResult
 from helpers import make_emulator_info
+from androtools.core.constants import KeyEvent
 from androtools.core.device import (
     EmulatorConsole,
     DeviceStatus,
@@ -25,7 +29,7 @@ from androtools.core.mumu import MumuConsole, MumuPlayer
 
 from androtools.core.session import EmulatorSession
 from androtools.core.shell import AndroidShell
-from androtools.testing import FakeADB
+from androtools.testing import AdbCall, FakeADB
 
 SERIAL = "127.0.0.1:5555"
 
@@ -356,3 +360,240 @@ def test_every_player_can_be_built_from_info_alone():
         params = inspect.signature(cls.__init__).parameters.values()
         required = [p.name for p in params if p.default is inspect.Parameter.empty]
         assert required == ["self", "info"], f"{cls.__name__} 的必需参数是 {required}"
+
+
+# --------------------------------------------------------------------------- #
+# 雷电 serial 反查：用 MAC 指纹认实例，而不是按 index 猜端口
+# --------------------------------------------------------------------------- #
+
+# 实测（雷电 9.0.79.2，index 0 与 index 1 各一个实例）：
+#   vms\config\leidian0.config 里 "propertySettings.macAddress": "00DB48FD6270"
+#   guest 里 `ip addr show wlan0` 给出 00:db:48:fd:62:70 —— 同一个 MAC。
+#
+# 为什么必须反查：雷电的 adb serial 落在 emulator-5554 + 2*index 这个号段里，
+# 而 MuMu 占用同一个号段。实测两台雷电 + 两台 MuMu 同时开着时，
+# emulator-5556 归 MuMu index 1，雷电 index 1 在 adb 里根本不出现；
+# 连雷电官方的 `ldconsole adb --index 1` 都会安静地返回 MuMu 那台设备。
+# 按 index 算出来的 serial 会「合法地」指向别人的模拟器。
+
+LD_WLAN0 = "    link/ether 00:db:48:fd:62:70 brd ff:ff:ff:ff:ff:ff"
+MUMU_WLAN0 = "    link/ether 08:fb:cf:09:96:e2 brd ff:ff:ff:ff:ff:ff"
+
+
+def ld_fingerprint_console(tmp_path, mac="00DB48FD6270", index="0"):
+    """造一份雷电的实例配置目录，返回指过去的 console。
+
+    配置文件的位置是 `vms/config/leidian{index}.config`，相对 ldconsole.exe
+    所在目录 —— 实测 D:\\ProgramFiles\\LDPlayer9.0.79.2\\ldconsole.exe
+    与 D:\\ProgramFiles\\LDPlayer9.0.79.2\\vms\\config\\leidian0.config。
+
+    `fingerprint()` 用真实实现（它只读文件，正是被测的那段）；`list_devices()`
+    走 FakeLDConsole，免得真的去 spawn 一个空文件当 exe。
+    """
+    bin_dir = tmp_path / "LDPlayer"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    exe = bin_dir / "ldconsole.exe"
+    exe.write_text("")
+    config_dir = bin_dir / "vms" / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / f"leidian{index}.config").write_text(
+        '{\n    "propertySettings.macAddress": "%s",\n'
+        '    "propertySettings.phoneAndroidId": "7e0ce001bc9be497"\n}\n' % mac
+    )
+
+    class FingerprintLDConsole(FakeLDConsole):
+        def __init__(self):
+            super().__init__([ld_row(index, 1111, 2222)])
+            self.bin_path = str(exe)
+
+    return FingerprintLDConsole()
+
+
+def adb_with_two_emulators(responses=None):
+    """adb 上有雷电 index 0 和一台 MuMu，MAC 各不相同。"""
+    return FakeADB(
+        responses=responses,
+        devices=[
+            ("emulator-5554", "device", "1"),
+            ("emulator-5556", "device", "2"),
+        ],
+        serial_responses={
+            "emulator-5554": {
+                ("ip", "addr", "show", "wlan0"): CmdResult(LD_WLAN0, ""),
+            },
+            "emulator-5556": {
+                ("ip", "addr", "show", "wlan0"): CmdResult(MUMU_WLAN0, ""),
+            },
+        },
+    )
+
+
+#: 走完一次 get_status() 需要的 adb 响应（它会探状态、发一颗探测按键）
+STATUS_OK = {
+    ("get-state",): CmdResult("device", ""),
+    ("input", "keyevent", str(KeyEvent.KEYCODE_ALT_LEFT.value)): CmdResult("", ""),
+}
+
+
+def ld_player_with(console, adb):
+    info = make_emulator_info(index="0", serial=None, console_path="ldconsole")
+    return LDPlayer(info, adb=adb, sleeper=lambda _s: None, console=console)
+
+
+def test_ld_reads_its_mac_out_of_the_instance_config(tmp_path):
+    console = ld_fingerprint_console(tmp_path)
+
+    assert console.fingerprint("0") == "00DB48FD6270"
+
+
+def test_ld_fingerprint_is_none_when_the_config_is_absent(tmp_path):
+    """雷电改了目录布局时是 None，不是异常 —— 交给上层决定怎么办。"""
+    console = ld_fingerprint_console(tmp_path)
+    (tmp_path / "LDPlayer" / "vms" / "config" / "leidian0.config").unlink()
+
+    assert console.fingerprint("0") is None
+
+
+def test_ld_finds_itself_by_mac_among_other_emulators(tmp_path):
+    """核心用例：认 MAC，不认端口号。"""
+    player = ld_player_with(ld_fingerprint_console(tmp_path), adb_with_two_emulators())
+
+    assert player.resolve_serial() == "emulator-5554"
+    # 认出来之后写进 info，之后的命令才带得上 -s
+    assert player.info.serial == "emulator-5554"
+
+
+def test_ld_never_picks_a_device_whose_mac_differs(tmp_path):
+    """反查的核心保证：MAC 对不上就当没这个设备，绝不「差不多就行」。"""
+    console = ld_fingerprint_console(tmp_path, mac="001122334455")
+    player = ld_player_with(console, adb_with_two_emulators())
+
+    with pytest.raises(RuntimeError, match="认不出"):
+        player.resolve_serial()
+
+    assert player.info.serial is None
+
+
+def test_ld_says_which_serials_it_looked_at(tmp_path):
+    """报错必须列出候选 —— 排查时用户需要知道该去看哪几台。"""
+    console = ld_fingerprint_console(tmp_path, mac="001122334455")
+    player = ld_player_with(console, adb_with_two_emulators())
+
+    with pytest.raises(RuntimeError) as err:
+        player.resolve_serial()
+
+    assert "emulator-5554" in str(err.value)
+    assert "emulator-5556" in str(err.value)
+
+
+def test_ld_refuses_to_guess_when_its_config_is_gone(tmp_path):
+    """没有指纹就没有任何可核对的东西 —— 这种情况下宁可报错。"""
+    console = ld_fingerprint_console(tmp_path)
+    (tmp_path / "LDPlayer" / "vms" / "config" / "leidian0.config").unlink()
+    player = ld_player_with(console, adb_with_two_emulators())
+
+    with pytest.raises(RuntimeError, match="配置"):
+        player.resolve_serial()
+
+
+def test_ld_skips_serials_that_stop_answering(tmp_path):
+    """adb devices 里可能有列出来但问不动的东西，不能因此中断整条反查。"""
+
+    class DeafADB(FakeADB):
+        """emulator-5556 问什么都报错，模拟那台设备正在重启。"""
+
+        def run_shell_cmd(self, cmd, serial=None, timeout=30):
+            if serial == "emulator-5556":
+                self.calls.append(AdbCall("run_shell_cmd", list(cmd), serial, timeout))
+                raise RuntimeError("device offline")
+            return super().run_shell_cmd(cmd, serial, timeout)
+
+    adb = DeafADB(
+        responses={("get-state",): CmdResult("device", "")},
+        devices=[("emulator-5554", "device", "1"), ("emulator-5556", "offline", "2")],
+        serial_responses={
+            "emulator-5554": {("ip", "addr", "show", "wlan0"): CmdResult(LD_WLAN0, "")},
+        },
+    )
+    player = ld_player_with(ld_fingerprint_console(tmp_path), adb)
+
+    # 问不动的那台被跳过，另一台仍然认得出来
+    assert player.resolve_serial() == "emulator-5554"
+
+
+def test_ld_reports_failure_when_the_only_candidate_is_unreachable(tmp_path):
+    """一台都问不动时要说清楚，而不是把「问不到」说成「不在」。"""
+
+    class DeafADB(FakeADB):
+        def run_shell_cmd(self, cmd, serial=None, timeout=30):
+            self.calls.append(AdbCall("run_shell_cmd", list(cmd), serial, timeout))
+            raise RuntimeError("device offline")
+
+    adb = DeafADB(
+        devices=[("emulator-5556", "offline", "2")],
+    )
+    player = ld_player_with(ld_fingerprint_console(tmp_path), adb)
+
+    with pytest.raises(RuntimeError, match="认不出"):
+        player.resolve_serial()
+
+
+# --------------------------------------------------------------------------- #
+# 自动反查接进 get_status —— 用它的人不该需要手动调 resolve_serial
+# --------------------------------------------------------------------------- #
+
+
+def test_ld_get_status_adopts_the_mac_matched_serial(tmp_path):
+    adb = adb_with_two_emulators(STATUS_OK)
+    player = ld_player_with(ld_fingerprint_console(tmp_path), adb)
+    player.console.getprop = lambda idx, prop: "1"  # type: ignore[assignment]
+
+    player.get_status()
+
+    assert player.info.serial == "emulator-5554"
+    # 认出来之后，adb 命令带的是 -s emulator-5554，而不是靠 adb 自己挑
+    get_state = [c for c in adb.calls if tuple(c.cmd) == ("get-state",)]
+    assert get_state[0].serial == "emulator-5554"
+
+
+def test_ld_get_status_does_not_raise_when_the_instance_cannot_be_identified(tmp_path):
+    """get_status() 的契约是返回一个状态。
+
+    认不出实例时不能抛 —— 否则调用方得额外包一层 try。交给 adb 的歧义检查，
+    它本来就会带着设备列表报错。
+    """
+    adb = adb_with_two_emulators()
+    player = ld_player_with(
+        ld_fingerprint_console(tmp_path, mac="001122334455"), adb
+    )
+
+    with pytest.raises(AmbiguousDeviceError, match="emulator-5554"):
+        player.get_status()
+
+
+def test_ld_get_status_still_works_without_an_instance_config(tmp_path):
+    """雷电改了目录布局不该让这个类彻底不能用。"""
+    console = ld_fingerprint_console(tmp_path)
+    (tmp_path / "LDPlayer" / "vms" / "config" / "leidian0.config").unlink()
+    adb = FakeADB(
+        responses=dict(STATUS_OK),
+        devices=[("emulator-5554", "device", "1")],
+    )
+    player = ld_player_with(console, adb)
+    player.console.getprop = lambda idx, prop: ""  # type: ignore[assignment]
+
+    assert player.get_status() == DeviceStatus.DEVICE
+
+
+def test_ld_get_status_does_not_resolve_twice(tmp_path):
+    """认一次就够 —— 每条命令都重扫一遍 adb 是白花的进程。"""
+    adb = adb_with_two_emulators(STATUS_OK)
+    player = ld_player_with(ld_fingerprint_console(tmp_path), adb)
+    player.console.getprop = lambda idx, prop: "1"  # type: ignore[assignment]
+
+    player.get_status()
+    before = adb.count("ip", "addr", "show", "wlan0")
+    player.get_status()
+
+    assert adb.count("ip", "addr", "show", "wlan0") == before
+

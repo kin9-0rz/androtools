@@ -2,6 +2,15 @@
 
 本文件记录面向使用者的破坏性变更。内部重构（seam 抽取、测试补充）不在此列。
 
+## 未发布
+
+### 修复
+
+- **`LDPlayer` 不再把 `serial=None` 变成一个随机设备。** 雷电的 serial 落在 `emulator-5554 + 2 * index` 号段里，而 **MuMu 占用同一个号段** —— 实测两台雷电 + 两台 MuMu 同时开着时，MuMu index 1 占住 `emulator-5556`，雷电 index 1 在 adb 里根本不出现；连雷电官方 `ldconsole adb --index 1` 都会安静地返回 MuMu 那台设备的属性。所以按 index 推出的 serial 不会「连不上」，它会**合法地连到别人的模拟器**。现在 `LDPlayer` 会用每实例唯一的 MAC 指纹（雷电实例配置里的 `propertySettings.macAddress`，guest 的 wlan0 上是同一个值）在 adb 上认自己的那一台，**核不上就报错，绝不按 index 猜端口**。显式给出 `serial=` 的行为完全不变。
+- **`MumuPlayer` 在被外部启动时不再一律报 ERORR。** MuMuManager 报的 `127.0.0.1:<adb_port>` 默认并不在 `adb devices` 里 —— 必须显式 `adb connect` 之后才存在，而过去只有 `launch()` 会做这件事。从 MuMu 启动器外部启动的实例因此每条命令都 `not found`，`get_status()` 一路判到 ERORR（看着像设备坏了，其实只是没连上）。现在连接是「用之前先保证存在」。`launch()` 里那次 connect 仍在。
+
+两处都只改「`serial=None` 时怎么办」：显式给出 `serial` 的调用方行为不变。
+
 ## 2.0.0
 
 已发布到 PyPI（2026-10-04）。

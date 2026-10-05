@@ -1,12 +1,40 @@
 # 雷电模拟器
+import json
 import shutil
 import time
+from pathlib import Path
 from typing import Callable
 
 from androtools import logger
 from androtools.android_sdk.platform_tools import AdbRunner
 from androtools.core.device import EmulatorConsole, DeviceStatus, EmulatorInfo, Pids
 from androtools.core.session import ConsoleSession
+
+#: 反查实例身份用的 guest 命令。取 wlan0 的 MAC —— 它是雷电在实例配置里
+#: 亲手写进去的那个值，所以两边一定对得上。
+_IDENTITY_CMD = ["ip", "addr", "show", "wlan0"]
+
+
+def normalize_mac(value: str) -> str:
+    """MAC 归一化成大写无分隔。
+
+    雷电配置里写的是 `00DB48FD6270`，guest 里 `ip addr` 吐的是
+    `00:db:48:fd:62:70` —— 同一台机器，两种写法。
+    """
+    return value.replace(":", "").replace("-", "").strip().upper()
+
+
+def parse_mac(ip_addr_output: str) -> str | None:
+    """从 `ip addr show` 的输出里取出第一个 MAC。取不到返回 None。
+
+    token 是 `link/ether` / `link/none` 这类（不是 `link/`），后面一个才是地址。
+    """
+    for line in ip_addr_output.splitlines():
+        parts = line.split()
+        for position, token in enumerate(parts[:-1]):
+            if token.startswith("link/") and parts[position + 1] not in {"", "(null)"}:
+                return normalize_mac(parts[position + 1])
+    return None
 
 
 class LDConsole(EmulatorConsole):
@@ -100,6 +128,38 @@ class LDConsole(EmulatorConsole):
             cmd = " ".join(cmd)
         return self.adb(idx, f"shell {cmd}", encoding=encoding)
 
+    def fingerprint(self, idx: int | str) -> str | None:
+        """这个实例在雷电自己眼里的身份：它的 MAC。
+
+        读的是雷电写的实例配置 `vms/config/leidian{index}.config` 里的
+        `propertySettings.macAddress`。这不是我们的猜测 —— 雷电把这个值注入到
+        guest 的 wlan0 上，实测两边一致（配置 00DB48FD6270，
+        `ip addr show wlan0` 是 00:db:48:fd:62:70）。
+
+        配置不在就返回 None。不抛异常：雷电改目录布局是我们该降级的情况，
+        而调用方有明确的降级方式（不猜，如实报错）。
+
+        注意 `leidian{index}.config` 里的 index 是雷电的实例名，和
+        `list2` 的行序一致 —— 实测两台实例分别是 leidian0 / leidian1。
+        """
+        if not self.bin_path:
+            return None
+        config = (
+            Path(self.bin_path).parent
+            / "vms"
+            / "config"
+            / f"leidian{idx}.config"
+        )
+        if not config.is_file():
+            return None
+        try:
+            payload = json.loads(config.read_text(encoding="utf-8", errors="ignore"))
+        except (OSError, json.JSONDecodeError):
+            return None
+
+        mac = payload.get("propertySettings.macAddress")
+        return normalize_mac(mac) if mac else None
+
 
 class LDPlayer(ConsoleSession):
     """雷电模拟器"""
@@ -117,6 +177,9 @@ class LDPlayer(ConsoleSession):
             adb=adb,
             sleeper=sleeper,
         )
+
+    #: 收窄到具体类型，resolve_serial 才拿得到 fingerprint
+    console: LDConsole
 
     def is_crashed(self) -> bool:
         """
@@ -169,3 +232,75 @@ class LDPlayer(ConsoleSession):
     def close(self) -> None:
         self.console.quit_device(self.index)
         self._sleep(5)
+
+    def resolve_serial(self) -> str:
+        """在 adb 现有的设备里认出属于这个 index 的那一台，写进 info.serial。
+
+        为什么必须反查而不能按 index 算端口：雷电的 serial 落在
+        `emulator-5554 + 2 * index` 这个号段里，而 **MuMu 占用同一个号段**。
+        实测两台雷电 + 两台 MuMu 同时开着：
+
+            emulator-5554  雷电 index 0
+            emulator-5556  MuMu index 1     <- 正好是雷电 index 1 该去的位置
+            雷电 index 1   在 adb 里根本不出现
+
+        更糟的是雷电官方的 `ldconsole adb --index 1` 会安静地返回 MuMu 那台设备
+        的属性。所以按 index 推出的 serial 不会「连不上」，它会**合法地连到别人的
+        模拟器**上 —— 对一个要装 APK、跑测试的库来说，这是最坏的失败方式。
+
+        认法是核对 MAC：雷电把每个实例的 MAC 写进自己的实例配置，也注入了 guest
+        的 wlan0，两边一定对得上。认不出就报错，不退而求其次去猜。
+
+        Raises:
+            RuntimeError: 找不到指纹，或 adb 上没有任何设备与它相符。
+        """
+        expected = self.console.fingerprint(self.index)
+        if expected is None:
+            raise RuntimeError(
+                f"读不到雷电实例 {self.index} 的 MAC 指纹（找 {self.index} 号实例配置"
+                "失败），没有可核对的身份。请在 DeviceInfo.serial 里直接指定 adb serial。"
+            )
+
+        candidates = [serial for serial, status, _ in self.adb.get_devices()]
+        for serial in candidates:
+            try:
+                output = self.adb.run_shell_cmd(_IDENTITY_CMD, serial).output
+            except Exception as e:
+                # adb devices 会列出问不动的东西（离线、正在重启）。跳过即可，
+                # 整条反查不该因为一台设备不配合就失败。
+                logger.debug(f"[{self.name}] 问 {serial} 的 MAC 失败：{e}")
+                continue
+
+            if parse_mac(output) == expected:
+                self.info.serial = serial
+                return serial
+
+        raise RuntimeError(
+            f"雷电实例 {self.index} 认不出对应的 adb 设备：adb 上有 "
+            f"{candidates or '（无）'}，没有一台的 MAC 是 {expected}。"
+            "雷电和 MuMu 共用 emulator-555X 号段，可能被对方的实例占住了；"
+            "请在 DeviceInfo.serial 里直接指定。"
+        )
+
+    def get_status(self) -> DeviceStatus:
+        """问状态之前先把 serial 认出来。
+
+        认得出就用认出的（准），认不出就留给 `_checked_serial` 的歧义检查 ——
+        那里的报错本来就带着设备列表，不会比这里差。而 `get_status()` 的契约是
+        返回一个状态，不该因为「认不出实例」而抛异常。
+        """
+        self._auto_resolve_serial()
+        return super().get_status()
+
+    def _auto_resolve_serial(self) -> None:
+        """serial 没给时按 MAC 认一次。认不出就算了，不硬失败。
+
+        没有指纹可比对时直接跳过 —— 雷电改了目录布局不该让这个类彻底不能用，
+        那种情况下 adb 的多设备歧义检查仍然拦得住。
+        """
+        if self.info.serial is not None or self.console.fingerprint(self.index) is None:
+            return
+        try:
+            self.resolve_serial()
+        except RuntimeError as e:
+            logger.debug(f"[{self.name}] 自动认 serial 失败：{e}")

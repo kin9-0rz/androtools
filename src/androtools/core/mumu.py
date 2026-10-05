@@ -30,7 +30,8 @@ class MumuConsole(EmulatorConsole):
        不给状态字符串，只能靠两个进程 PID 推断。
     3. `adb` 子命令是**受限的便利封装**（go_home / key_delete / input_text），
        没有原始命令透传 —— 所以 AndroidShell 走的是 MuMu 自带的 adb.exe，
-       serial 由 `serial()` 拼出来。
+       serial 由 `serial()` 拼出来，且必须显式 connect 才存在，见
+       `MumuPlayer.ensure_connected`。
     """
 
     def __init__(self, path=shutil.which("MuMuManager.exe")):
@@ -134,10 +135,7 @@ class MumuPlayer(ConsoleSession):
             if self.is_boot():
                 break
         self.refresh_serial()
-        # MuMu 不会像雷电那样把自己注册进 adb server，必须显式 connect。
-        # 不做这一步，adb devices 里只有真机，get_status() 会一路判到 ERORR。
-        if self.info.serial:
-            self.shell.adb(["connect", self.info.serial])
+        self.ensure_connected()
 
     def close(self) -> None:
         self.console.quit_device(self.index)
@@ -146,3 +144,41 @@ class MumuPlayer(ConsoleSession):
     def refresh_serial(self) -> None:
         """MuMu 重启后 adb 端口会变，要重新取一次 serial。"""
         self.info.serial = self.console.serial(self.index)
+
+    def ensure_connected(self) -> str | None:
+        """让 adb server 认得这个实例的地址，返回用到的 serial。
+
+        MuMu 的两套身份只有一套是可靠的。实测（MuMu 12 与 15 各一个实例）：
+        模拟器会自己往 adb server 注册一个 `emulator-555X` 名字，而
+        MuMuManager 报的 `127.0.0.1:<adb_port>` **默认并不在 adb devices 里**，
+        必须显式 `adb connect` 之后才存在。
+
+        而 `emulator-555X` 那套是跟雷电抢的同一个号段：MuMu index 1 占住了
+        `emulator-5556`，正好是雷电 index 1 该去的位置；MuMu index 0 该占的
+        `emulator-5554` 已经被雷电 index 0 拿走，于是它只剩 tcp 地址可用。
+        所以只有 `127.0.0.1:<adb_port>` 是 MuMu 的权威地址。
+
+        连接也因此是「用之前先保证存在」，而不是只在 launch() 里做一次 ——
+        从 MuMu 启动器外部启动的实例不会被我们 launch 过，adb 上那个地址不存在，
+        每条命令都 not found，get_status() 一路判到 ERORR。
+        """
+        if self.info.serial is None:
+            self.refresh_serial()
+
+        serial = self.info.serial
+        if serial is None:
+            return None
+
+        if serial not in {d[0] for d in self.adb.get_devices()}:
+            # connect 的对象是 adb server，不是某台设备，所以不传 -s。
+            self.adb.run_cmd(["connect", serial], None)
+        return serial
+
+    def get_status(self) -> DeviceStatus:
+        """先保证地址在 adb 上真的存在，再去问状态。
+
+        不做这一步的话，外部启动的 MuMu 会一路走到 ERORR —— 那是个合法但完全
+        误导的状态，看起来像设备坏了，其实只是 adb 没连上。
+        """
+        self.ensure_connected()
+        return super().get_status()

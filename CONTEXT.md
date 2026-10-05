@@ -20,6 +20,15 @@ _Avoid_: Device、模拟器实例
 `adb -s` 所使用的目标标识符，例如 `emulator-5554` 或 `127.0.0.1:16416`。**有些模拟器的 Serial 是运行期才确定的** —— 端口会变，所以 MuMu 是在启动后从 Console 查出来的，而不是预先配置的。这条 Serial 必须在构造时给出，或者交给 `refresh_serial()` 之类的方法去填；留空且同时有多台设备在线时，库会明确报错而不是让 adb 自己乱挑。
 _Avoid_: Index、transport id
 
+**实例指纹**（Fingerprint）:
+用来确认「眼前这台 adb 设备确实是我要的那个实例」的每实例唯一值。雷电把它写在实例配置 `vms/config/leidian{index}.config` 的 `macAddress` 里，也注入了 guest 的 wlan0 —— 两边读的是同一个 MAC。
+_Avoid_: Serial（Serial 是寻址用的，指纹是**核对身份**用的；两者不能互相替代 —— 恰恰是 Serial 不可信才需要指纹）
+
+**Serial 不可信**（Untrusted Serial）:
+有些 Serial 推导得出来、但**不代表你能操作到想要的实例**。雷电的 Serial 落在 `emulator-5554 + 2 * index` 号段里，而 MuMu 占用同一个号段 —— 实测两台雷电 + 两台 MuMu 同时开着时，MuMu index 1 占住 `emulator-5556`，雷电 index 1 在 adb 里根本不出现；连雷电官方 `ldconsole adb --index 1` 都会安静地返回 MuMu 那台设备。这种 Serial 不报「连不上」，它**合法地指向别人的设备** —— 对一个要装 APK、跑测试的库来说这是最坏的失败方式。
+因此遇到不可信 Serial 时必须**核对实例指纹**，核不上就如实报错，绝不按 index 猜端口。
+_Avoid_: 端口冲突、serial 不对（说清是「连到了别人」还是「连不上」）
+
 **Index**:
 模拟器在厂商 Console 中的稳定编号，由用户在厂商工具里分配，跨重启不变。
 _Avoid_: Serial、序号

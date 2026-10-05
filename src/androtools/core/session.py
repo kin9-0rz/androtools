@@ -53,7 +53,10 @@ class Device:
         """
         self.info = info
         self.name = info.name
-        self.shell = AndroidShell(ADB(info.adb_path) if adb is None else adb, info)
+        # adb runner 同时留给 vendor adapter 用：它们要绕过 DeviceInfo.serial 去
+        # 命令别的设备（雷电认实例、MuMu 补 connect），那不是「对 self 操作」。
+        self.adb = ADB(info.adb_path) if adb is None else adb
+        self.shell = AndroidShell(self.adb, info)
         self._sleep = sleeper
         self.status = DeviceStatus.STOP
         self._android_version: str | None = None
