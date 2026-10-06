@@ -95,7 +95,10 @@ MuMu 启动后 adb 端口会变，`launch()` 会从 Console 查出新的 `serial
 | —— | 雷电 index 1 在 adb 里**根本不出现** |
 
 推出来的 serial 不会「连不上」，它会**合法地连到别人的模拟器**上 —— 连雷电官方的
-`ldconsole adb --index 1` 都会安静地返回 MuMu 那台设备的属性。
+`ldconsole adb --index 1` 都会安静地返回 MuMu 那台设备的属性（实测返回 `SM-A5560`）。
+
+把 MuMu 关掉再跑同样的两台雷电，`emulator-5556` 就变回雷电 index 1（`V1938T`）。**同一段
+代码、同一个 serial，换个环境就换了个主人** —— 这就是为什么不能按 index 算端口。
 
 所以 `LDPlayer` 在 `serial=None` 时不按 index 算端口，而是用每实例唯一的 **MAC 指纹**
 （雷电实例配置里的 `propertySettings.macAddress`，guest 的 wlan0 上是同一个值）在 adb
