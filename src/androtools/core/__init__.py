@@ -6,6 +6,7 @@ from androtools.core.device import (
     EmulatorInfo,
     Pids,
 )
+from androtools.core.identity import InstanceIdentity, identify
 from androtools.core.ld import LDConsole, LDPlayer
 from androtools.core.mumu import MumuConsole, MumuPlayer
 from androtools.core.session import ConsoleSession, Device, EmulatorSession
@@ -20,10 +21,12 @@ __all__ = [
     "Device",
     "EmulatorInfo",
     "EmulatorSession",
+    "InstanceIdentity",
     "KeyEvent",
     "LDConsole",
     "LDPlayer",
     "MumuConsole",
     "MumuPlayer",
     "Pids",
+    "identify",
 ]

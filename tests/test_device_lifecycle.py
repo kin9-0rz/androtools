@@ -26,6 +26,7 @@ from androtools.core.device import (
 )
 from androtools.core.ld import LDConsole, LDPlayer
 from androtools.core.mumu import MumuConsole, MumuPlayer
+from androtools.core.identity import InstanceIdentity, identify
 
 from androtools.core.session import EmulatorSession
 from androtools.core.shell import AndroidShell
@@ -596,4 +597,187 @@ def test_ld_get_status_does_not_resolve_twice(tmp_path):
     player.get_status()
 
     assert adb.count("ip", "addr", "show", "wlan0") == before
+
+
+# --------------------------------------------------------------------------- #
+# 反查：adb serial -> 是哪个厂商的哪个实例
+# --------------------------------------------------------------------------- #
+#
+# 撞号之后用户最需要问的一句话是「adb 上这个 emulator-5556 到底是谁的」。
+# 实测 MuMu 开着时 `ldconsole adb --index 1` 会返回 MuMu 那台设备的属性，
+# 所以这个反查不能问厂商工具 —— 只能拿指纹自己核对。
+
+
+def test_identify_reports_the_vendor_and_index_of_a_serial(tmp_path):
+    adb = adb_with_two_emulators()
+    console = ld_fingerprint_console(tmp_path, mac="00DB48FD6270")
+
+    identity = identify(adb, [("雷电", console)], "emulator-5554")
+
+    assert identity == InstanceIdentity(
+        vendor="雷电", index="0", serial="emulator-5554"
+    )
+
+
+def test_identify_tells_two_ld_instances_apart_by_mac():
+    """两台雷电同时开着：指纹是唯一能区分它们的东西。
+
+    实测两台的 ro.product.device 都是 marlin —— 任何按属性匹配的做法都会在这里失败。
+    """
+
+    class TwoInstances(FakeLDConsole):
+        def __init__(self):
+            super().__init__([ld_row(0, 1, 2), ld_row(1, 3, 4)])
+
+        def fingerprint(self, idx):
+            return {"0": "00DB48FD6270", "1": "00DB0BFC4D61"}[str(idx)]
+
+    adb = FakeADB(
+        responses={},
+        devices=[("emulator-5554", "device", "1"), ("emulator-5556", "device", "2")],
+        serial_responses={
+            "emulator-5554": {
+                ("ip", "addr", "show", "wlan0"): CmdResult(LD_WLAN0, "")
+            },
+            "emulator-5556": {
+                ("ip", "addr", "show", "wlan0"): CmdResult(
+                    "link/ether 00:db:0b:fc:4d:61 brd ff:ff:ff:ff:ff:ff", ""
+                )
+            },
+        },
+    )
+    consoles = [("雷电", TwoInstances())]
+
+    # 反查的用处：serial 本身不告诉你 index，撞号时必须靠指纹
+    assert identify(adb, consoles, "emulator-5556") == InstanceIdentity(
+        vendor="雷电", index="1", serial="emulator-5556"
+    )
+    assert identify(adb, consoles, "emulator-5554") == InstanceIdentity(
+        vendor="雷电", index="0", serial="emulator-5554"
+    )
+
+
+def test_identify_returns_none_when_no_instance_matches(tmp_path):
+    adb = adb_with_two_emulators()
+    console = ld_fingerprint_console(tmp_path, mac="001122334455")
+
+    assert identify(adb, [("雷电", console)], "emulator-5554") is None
+
+
+def test_identify_returns_none_for_a_phone(tmp_path):
+    """真机的 serial 认不出是哪家模拟器 —— 那不是错误，是它本来就不属于这里。"""
+    adb = FakeADB(
+        devices=[("A87V026107005402", "device", "1")],
+        serial_responses={
+            "A87V026107005402": {
+                ("ip", "addr", "show", "wlan0"): CmdResult(
+                    "link/ether 12:34:56:78:9a:bc", ""
+                )
+            }
+        },
+    )
+
+    identity = identify(
+        adb, [("雷电", ld_fingerprint_console(tmp_path))], "A87V026107005402"
+    )
+
+    assert identity is None
+
+
+def test_identify_asks_the_device_exactly_once(tmp_path):
+    """认一台设备就是一条 adb 往返，别因为有多个厂商就重复问。"""
+    adb = adb_with_two_emulators()
+
+    identify(
+        adb,
+        [
+            ("雷电", ld_fingerprint_console(tmp_path, mac="001122334455")),
+            ("雷电二号", ld_fingerprint_console(tmp_path, mac="009988776655", index="1")),
+        ],
+        "emulator-5554",
+    )
+
+    assert adb.count("ip", "addr", "show", "wlan0") == 1
+
+
+def test_identify_does_not_enumerate_adb_devices(tmp_path):
+    """反查问的是一个具体 serial —— 不该去扫整张设备表。"""
+    adb = adb_with_two_emulators()
+
+    identify(adb, [("雷电", ld_fingerprint_console(tmp_path))], "emulator-5554")
+
+    assert adb.commands().count(("devices", "-l")) == 0
+
+
+def test_identify_skips_a_vendor_without_a_fingerprint(tmp_path):
+    """拿不出指纹的厂商（比如 MuMu）要跳过，而不是拿 None 去比对。
+
+    拿 None 当期望值会让任何 MAC 读不出来的设备都「匹配上」。
+    """
+
+    class BlindConsole(MumuConsole):
+        def __init__(self):
+            pass
+
+        def instances(self):
+            return ["0", "1"]
+
+        def fingerprint(self, idx):
+            return None
+
+    adb = FakeADB(
+        devices=[("emulator-5556", "device", "2")],
+        serial_responses={
+            "emulator-5556": {
+                ("ip", "addr", "show", "wlan0"): CmdResult(LD_WLAN0, "")
+            }
+        },
+    )
+
+    assert identify(adb, [("MuMu", BlindConsole())], "emulator-5556") is None
+
+
+def test_identify_returns_none_when_the_device_cannot_be_asked(tmp_path):
+    """问不动的那台要返回 None，而不是把异常抛给调用方。"""
+
+    class DeafADB(FakeADB):
+        def run_shell_cmd(self, cmd, serial=None, timeout=30):
+            self.calls.append(AdbCall("run_shell_cmd", list(cmd), serial, timeout))
+            raise RuntimeError("device offline")
+
+    adb = DeafADB(devices=[("emulator-5554", "offline", "1")])
+
+    assert identify(adb, [("雷电", ld_fingerprint_console(tmp_path))], "emulator-5554") is None
+
+
+def test_identify_with_no_consoles_at_all():
+    adb = FakeADB(devices=[("emulator-5554", "device", "1")])
+
+    assert identify(adb, [], "emulator-5554") is None
+
+
+def test_mumu_has_no_fingerprint_to_offer():
+    """MuMu 的 imei 在 guest 侧读不回来，所以拿不出指纹。
+
+    这不是「还没写」，是实测结论 —— 锁住它，免得哪天有人顺手填个猜的值。
+    """
+    assert MumuConsole.__new__(MumuConsole).fingerprint("0") is None
+
+
+def test_both_consoles_can_enumerate_their_instances(tmp_path):
+    ld = ld_fingerprint_console(tmp_path)
+
+    class TwoLD(FakeLDConsole):
+        def __init__(self):
+            super().__init__([ld_row(0, 1, 2), ld_row(1, 3, 4)])
+
+    class TwoMuMu(MumuConsole):
+        def __init__(self):
+            pass
+
+        def _call(self, *args):
+            return {"0": {"index": "0"}, "1": {"index": "1"}}
+
+    assert TwoLD().instances() == ["0", "1"]
+    assert TwoMuMu().instances() == ["0", "1"]
 

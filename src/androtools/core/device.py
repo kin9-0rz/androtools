@@ -136,3 +136,27 @@ class EmulatorConsole(CMD, ABC):
     @abstractmethod
     def kill_app(self, idx: int | str, package: str) -> None:
         """通过 Console 杀死应用。"""
+
+    def instances(self) -> list[str]:
+        """这个厂商当前存在的实例编号，按 list 顺序。
+
+        用于「反查 adb 上的某个 serial 是谁」—— 没有它就只能对每个 index
+        从 0 往上试，而 index 段里可能有空洞。
+        """
+        raise NotImplementedError(f"{type(self).__name__} 没有实现 instances()")
+
+    def fingerprint(self, idx: int | str) -> str | None:
+        """这个实例在 adb 上可被认出来的唯一值；拿不出就返回 None。
+
+        它必须满足两个条件，缺一不可：
+
+        1. **两侧都能读到** —— 一侧是本厂商的权威来源（配置文件），另一侧是
+           guest 里 adb 能问到的字段。雷电的 MAC 两边都有：写在实例配置的
+           `propertySettings.macAddress` 里，也注入了 guest 的 wlan0。
+        2. **每实例不同** —— 雷电实例都是克隆的，ro.product.model 之类在实例间
+           必然相同（实测两台雷电的 ro.product.device 都是 marlin）。
+
+        返回 None 的厂商会被 `identify` 跳过。**不能拿 None 当期望值去比对** ——
+        那会让任何读不出指纹的设备都「匹配上」。
+        """
+        raise NotImplementedError(f"{type(self).__name__} 没有实现 fingerprint()")

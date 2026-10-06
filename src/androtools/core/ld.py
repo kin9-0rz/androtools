@@ -8,33 +8,8 @@ from typing import Callable
 from androtools import logger
 from androtools.android_sdk.platform_tools import AdbRunner
 from androtools.core.device import EmulatorConsole, DeviceStatus, EmulatorInfo, Pids
+from androtools.core.identity import IDENTITY_CMD, normalize_mac, parse_mac
 from androtools.core.session import ConsoleSession
-
-#: 反查实例身份用的 guest 命令。取 wlan0 的 MAC —— 它是雷电在实例配置里
-#: 亲手写进去的那个值，所以两边一定对得上。
-_IDENTITY_CMD = ["ip", "addr", "show", "wlan0"]
-
-
-def normalize_mac(value: str) -> str:
-    """MAC 归一化成大写无分隔。
-
-    雷电配置里写的是 `00DB48FD6270`，guest 里 `ip addr` 吐的是
-    `00:db:48:fd:62:70` —— 同一台机器，两种写法。
-    """
-    return value.replace(":", "").replace("-", "").strip().upper()
-
-
-def parse_mac(ip_addr_output: str) -> str | None:
-    """从 `ip addr show` 的输出里取出第一个 MAC。取不到返回 None。
-
-    token 是 `link/ether` / `link/none` 这类（不是 `link/`），后面一个才是地址。
-    """
-    for line in ip_addr_output.splitlines():
-        parts = line.split()
-        for position, token in enumerate(parts[:-1]):
-            if token.startswith("link/") and parts[position + 1] not in {"", "(null)"}:
-                return normalize_mac(parts[position + 1])
-    return None
 
 
 class LDConsole(EmulatorConsole):
@@ -65,6 +40,14 @@ class LDConsole(EmulatorConsole):
         parts = lines[int(idx)].split(",")
 
         return Pids(int(parts[5]), int(parts[6]))
+
+    def instances(self) -> list[str]:
+        """雷电的实例编号就是 list2 的行序，第 0 列。"""
+        return [
+            line.split(",")[0]
+            for line in self.list_devices().splitlines()
+            if line.strip()
+        ]
 
     def probe_state(self, idx: int | str) -> DeviceStatus:
         """雷电不给状态字符串，只能看两个进程在不在。"""
@@ -264,7 +247,7 @@ class LDPlayer(ConsoleSession):
         candidates = [serial for serial, status, _ in self.adb.get_devices()]
         for serial in candidates:
             try:
-                output = self.adb.run_shell_cmd(_IDENTITY_CMD, serial).output
+                output = self.adb.run_shell_cmd(IDENTITY_CMD, serial).output
             except Exception as e:
                 # adb devices 会列出问不动的东西（离线、正在重启）。跳过即可，
                 # 整条反查不该因为一台设备不配合就失败。

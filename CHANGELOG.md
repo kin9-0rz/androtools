@@ -4,6 +4,19 @@
 
 ## 未发布
 
+### 新增
+
+- **`identify(adb, consoles, serial)`** —— 反查一个 adb serial 是哪个厂商的哪个实例。
+  撞号之后最需要问的一句话；它拿实例指纹核对，**不问你手上的厂商工具**，因为实测
+  `ldconsole adb --index 1` 在雷电+MuMu 混跑时会返回 MuMu 那台设备且不报错。
+  认不出返回 `None`（真机、指纹读不出来的厂商都属于这一类）。
+
+### 新增（interface）
+
+- **`EmulatorConsole.fingerprint(idx)` / `instances()`** —— 新增两个方法，带默认实现
+  （抛 `NotImplementedError`），所以已有的自定义 Console 不会因此无法实例化。
+  拿不出指纹的 adapter 返回 `None` 即可，`identify` 会跳过它。
+
 ### 修复
 
 - **`LDPlayer` 不再把 `serial=None` 变成一个随机设备。** 雷电的 serial 落在 `emulator-5554 + 2 * index` 号段里，而 **MuMu 占用同一个号段** —— 实测两台雷电 + 两台 MuMu 同时开着时，MuMu index 1 占住 `emulator-5556`，雷电 index 1 在 adb 里根本不出现；连雷电官方 `ldconsole adb --index 1` 都会安静地返回 MuMu 那台设备的属性。所以按 index 推出的 serial 不会「连不上」，它会**合法地连到别人的模拟器**。现在 `LDPlayer` 会用每实例唯一的 MAC 指纹（雷电实例配置里的 `propertySettings.macAddress`，guest 的 wlan0 上是同一个值）在 adb 上认自己的那一台，**核不上就报错，绝不按 index 猜端口**。显式给出 `serial=` 的行为完全不变。

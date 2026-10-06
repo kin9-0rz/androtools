@@ -56,6 +56,31 @@ class MumuConsole(EmulatorConsole):
         """单个实例的原始信息。未启动的实例返回的 dict 会缺很多键。"""
         return self._call("info", "-v", str(idx))
 
+    def instances(self) -> list[str]:
+        """MuMu 的实例编号就是 `info -v all` 返回的那个 dict 的键。"""
+        return list(self._call("info", "-v", "all"))
+
+    def fingerprint(self, idx: int | str) -> str | None:
+        """拿不出来 —— 恒为 None，所以 `identify` 会跳过 MuMu。
+
+        MuMu 的实例配置 `vms/MuMuPlayer-<版本>-<index>/configs/vm_config.json`
+        里确实存着一个每实例唯一的 `imei`（实测 index 0 = 862641054037807，
+        index 1 = 869874032526491）。但它不能用：
+
+        1. guest 侧读不回来 —— `service call iphonesubinfo 1` 返回的是**异常
+           parcel**（`fffffffc ffffffff`），既不是这个 imei 也不是有效数据。
+        2. 即便读得回来，它和雷电的 MAC 是不同种类的值，`identify` 拿两者
+           逐字比对没有意义 —— 指纹必须是**两侧同一个值**。
+
+        真正的替代方案是 `adb_port`：实测它每实例唯一（16384 / 16416）、权威、
+        且 `adb connect` 可达。MuMu 不需要反查，是因为它从 Console 拿到的这个
+        身份本身就可信 —— 而雷电的 serial 号段和 MuMu 撞车，所以雷电才需要。
+
+        等哪天能拿到「MuMu 侧配置里的某个值 == guest 里 adb 能问到的值」，
+        这里就可以实现了。在那之前返回 None 比返回一个猜的值安全。
+        """
+        return None
+
     def serial(self, idx: int | str) -> str:
         """adb 的目标地址，例如 127.0.0.1:16416。实例未启动时拼不出来。"""
         info = self.instance(idx)

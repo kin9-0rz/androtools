@@ -111,6 +111,31 @@ serial 被对方占了，你会看到明确的报错而不是错误设备的数�
 EmulatorInfo(..., serial="emulator-5554", ...)   # 显式指定，跳过反查
 ```
 
+### 反查：adb 上这个 serial 到底是谁的
+
+撞号之后最需要问的一句话。`identify()` 拿指纹核对，不问厂商工具 —— 因为实测
+`ldconsole adb --index 1` 在那个环境下会返回 MuMu 那台设备且不报错。
+
+```python
+from androtools.android_sdk.platform_tools import ADB
+from androtools.core import LDConsole, MumuConsole, identify
+
+adb = ADB(r"D:\ProgramFiles\LDPlayer9.0.79.2\adb.exe")
+consoles = [
+    ("雷电", LDConsole(r"D:\ProgramFiles\LDPlayer9.0.79.2\ldconsole.exe")),
+    ("MuMu",  MumuConsole(r"D:\Program Files\Netease\MuMu\nx_main\MuMuManager.exe")),
+]
+
+identify(adb, consoles, "emulator-5556")
+# InstanceIdentity(vendor='雷电', index='1', serial='emulator-5556')
+
+identify(adb, consoles, "A87V026107005402")   # 真机
+# None
+```
+
+`None` 是正常结果，不是错误 —— 真机、以及指纹读不出来的厂商（目前是 MuMu，
+原因见 `MumuConsole.fingerprint` 的文档）都属于这一类。
+
 ### 抓包
 
 按应用抓 —— 用应用的 user id 做 iptables 标记。
