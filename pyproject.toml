@@ -1,7 +1,7 @@
 
 [project]
 name = "androtools"
-version = "2.0.0"
+version = "2.1.0"
 description = "对Android SDK、第三方模拟器命令行工具、以及通过adb连接的Android设备的封装"
 authors = [{ name = "kin9-0rz", email = "kin9-0rz@outlook.com" }]
 readme = "README.md"
