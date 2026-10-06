@@ -63,21 +63,31 @@ class MumuConsole(EmulatorConsole):
     def fingerprint(self, idx: int | str) -> str | None:
         """拿不出来 —— 恒为 None，所以 `identify` 会跳过 MuMu。
 
-        MuMu 的实例配置 `vms/MuMuPlayer-<版本>-<index>/configs/vm_config.json`
-        里确实存着一个每实例唯一的 `imei`（实测 index 0 = 862641054037807，
-        index 1 = 869874032526491）。但它不能用：
+        下面是实测结论，不是「还没查」（两台 MuMu 同时开着，逐个候选验过）：
 
-        1. guest 侧读不回来 —— `service call iphonesubinfo 1` 返回的是**异常
-           parcel**（`fffffffc ffffffff`），既不是这个 imei 也不是有效数据。
-        2. 即便读得回来，它和雷电的 MAC 是不同种类的值，`identify` 拿两者
-           逐字比对没有意义 —— 指纹必须是**两侧同一个值**。
+        | guest 侧能读到 | 每实例唯一 | MuMu 配置里有对应值 |
+        | --- | --- | --- |
+        | wlan0 MAC | 是（`08:fb:cf:09:96:e2` vs `08:79:79:1a:cf:72`） | **没有** |
+        | `settings get secure android_id` | 是（两台互不相同） | **没有** |
+        | `ro.serialno` | —— | 空值 |
+        | `service call iphonesubinfo 1` | —— | 抛异常 parcel（`fffffffc`），配置里的 `imei` 读不回来 |
 
-        真正的替代方案是 `adb_port`：实测它每实例唯一（16384 / 16416）、权威、
-        且 `adb connect` 可达。MuMu 不需要反查，是因为它从 Console 拿到的这个
-        身份本身就可信 —— 而雷电的 serial 号段和 MuMu 撞车，所以雷电才需要。
+        缺的是「期望值来源」这一半：MuMu 在
+        `vms/MuMuPlayer-<版本>-<index>/configs/vm_config.json` 里记了每实例唯一的
+        `imei` 和 `ginstance`，但 **guest 里都读不回来**；反过来 guest 里唯一的
+        MAC 和 android_id，MuMu 全目录的配置里都没记。指纹必须是两侧同一个值，
+        单有一侧等于没有。
 
-        等哪天能拿到「MuMu 侧配置里的某个值 == guest 里 adb 能问到的值」，
-        这里就可以实现了。在那之前返回 None 比返回一个猜的值安全。
+        配置里确实有 `vm.phone.miit`，而它**正好等于 guest 的 `ro.product.model`**
+        （index 0：PGBM10，index 1：SM-A5560）。但那是个**机型 profile**，不是实例 ——
+        两个用同一套手机配置的 MuMu 实例会给出同样的值，所以它只能分厂商、分不了 index。
+
+        MuMu 之所以不需要反查，是因为它从 Console 拿到的 `adb_port` 本身权威且可连：
+        实测 `127.0.0.1:16384` / `:16416` 一直可用，而且当雷电占着 `emulator-555X`
+        时，MuMu 也就只提供 tcp 地址。雷电的 serial 号段会撞车，所以雷电才需要指纹。
+
+        哪天 MuMu 记下了 guest 的 MAC 或 android_id，这里就可以实现了。在那之前返回
+        None 比返回一个只在单实例下成立的猜的值安全 —— 后者会让反查给出错误的 index。
         """
         return None
 
