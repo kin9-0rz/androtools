@@ -80,3 +80,13 @@ _Avoid_: PID（单独说 PID 时通常指界面进程）、进程号
 **Capture**:
 只抓取**单个应用**的网络流量。做法是用该应用的 user id 作为 iptables 标记，再让 tcpdump 按该标记采集，因此必须先知道应用的 user id。
 _Avoid_: 抓包、抓流量（没说清抓的是谁）
+
+**设置（Settings）**:
+一台实例的配置项表。`get_settings` / `set_settings` 的 key 是**厂商方言**
+（`performance_cpu.custom`、`advancedSettings.cpuCount`）—— 跨厂商不通用，所以
+不进中立层；少数常用项另有**中立配置动词**（`set_resolution` / `set_cpu` /
+`set_memory` / `set_root`），由 adapter 自己换算方言并在越界时抛 `ValueError`、
+不下发命令（两家都会静默骗人：MuMu 把超范围的宽高夹到边界，雷电把它整个丢掉，
+两次都报 rc 0）。中立动词只覆盖常用项，长尾一律走 `set_settings`。
+写下去的值在**下次启动**生效 —— 本库不替你重启，也不在你写入时把机器关掉。
+_Avoid_: 配置、参数（没说清是哪一层：方言 key 还是中立动词）

@@ -54,6 +54,11 @@ _MODIFY_VALUES: dict[str, str] = {
     "root": "1|0",
 }
 
+#: 中立动词的档位表，栄自 `ldconsole help` 原文 —— **不随宿主机变**，所以可以
+#: 直接写在代码里（MuMu 那侧相反：它的可选值由宿主机定，必须现读）。
+_LD_CPUS: tuple[str, ...] = ("1", "2", "3", "4")
+_LD_MEMORY_MB: tuple[int, ...] = (256, 512, 768, 1024, 1536, 2048, 4096, 8192)
+
 
 def _flatten(payload: dict[str, Any], prefix: str = "") -> dict[str, Any]:
     """把配置里的嵌套 dict 展平成点号 key。
@@ -347,6 +352,63 @@ class LDConsole(EmulatorConsole):
                 f"ldconsole {' '.join(cmd)} 失败（退出码 {result.exit_code}）："
                 f"{result.output or result.error or '厂商没有给出原因'}"
             )
+
+    def set_resolution(self, idx: int | str, width: int, height: int, dpi: int) -> None:
+        """一次 `--resolution w,h,dpi`，**然后回读配置确认真的落盘了**。
+
+        回读不是保险，是必需：实测越界的宽高会被**静默丢掉** ——
+        `--resolution 100,100,10` 是 rc 0、stdout 空，结果只有
+        `resolutionDpi=10` 落了盘，`advancedSettings.resolution` 整键不写。
+        退出码与 stdout 在这个调用上都是空的，唯一能看出问题的办法就是回读。
+        """
+        self.set_settings(idx, resolution=f"{width},{height},{dpi}")
+        landed = self.get_settings(idx)
+        got = tuple(
+            landed.get(key)
+            for key in (
+                "advancedSettings.resolution.width",
+                "advancedSettings.resolution.height",
+                "advancedSettings.resolutionDpi",
+            )
+        )
+        if got != (str(width), str(height), str(dpi)):
+            raise RuntimeError(
+                f"ldconsole modify --resolution {width},{height},{dpi} 之后配置里是"
+                f"宽 {got[0]} 高 {got[1]} dpi {got[2]}。雷电会**静默丢弃**它不接受的"
+                f"宽高（rc 0、stdout 空），三项得一起落盘才算成功。"
+            )
+
+    def set_cpu(self, idx: int | str, cores: int) -> None:
+        """值域抄自 `ldconsole help` 原文（`--cpu <1|2|3|4>`），不随宿主机变。
+
+        实测越界是 rc 4294966291（-5）+ stdout `parameter error!` —— 厂商自己会拒，
+        但那句话只说得出「不行」，说不出哪个值行；而且拿退出码拦，调用方拿到的
+        是 RuntimeError 而不是 ValueError，语义上「你给错了参数」更准确。
+        """
+        if str(cores) not in _LD_CPUS:
+            raise ValueError(f"雷电的 CPU 核数只能是 {'|'.join(_LD_CPUS)}，给的是 {cores}。")
+        self.set_settings(idx, cpu=str(cores))
+
+    def set_memory(self, idx: int | str, megabytes: int) -> None:
+        """中立层收 MB，雷电的 `--memory` 也是 MB —— 这里**没有换算**，只有档位。
+
+        实测只认 8 档（`--memory <256|512|768|1024|1536|2048|4096|8192>`，抄自
+        `ldconsole help`）。落在两档之间就近取值（并列取大，宁可多给不肯少给）；
+        256 以下或 8192 以上抛 ValueError，不静默夹到边界。
+
+        越界本也会被厂商拒（实测 `--memory 100` → rc 4294966290 + `parameter error!`），
+        但先用档位表拦下来，调用方拿到的才是带可比值的 ValueError。
+        """
+        if not min(_LD_MEMORY_MB) <= megabytes <= max(_LD_MEMORY_MB):
+            raise ValueError(
+                f"雷电的内存只能是 {list(_LD_MEMORY_MB)} MB 这八档，给的是 {megabytes} MB。"
+            )
+        picked = min(_LD_MEMORY_MB, key=lambda mb: (abs(mb - megabytes), -mb))
+        self.set_settings(idx, memory=str(picked))
+
+    def set_root(self, idx: int | str, enabled: bool) -> None:
+        """雷电的 `--root` 收 `1|0`（不是 true/false）—— 这是本中立动词唯一的方言。"""
+        self.set_settings(idx, root="1" if enabled else "0")
 
     def launch_device(self, idx: int | str):
         return self._run(["launch", "--index", str(idx)])

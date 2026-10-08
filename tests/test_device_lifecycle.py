@@ -8,6 +8,7 @@
 """
 
 import inspect
+import json
 import subprocess
 import threading
 import pytest
@@ -1241,13 +1242,19 @@ LD_CONFIG = """{
 }"""
 
 
-def ld_settings_console(tmp_path, config=None, rows=None, failure=None, index="0"):
+def ld_settings_console(
+    tmp_path, config=None, rows=None, failure=None, index="0", writes=True
+):
     """造一份雷电实例配置目录，加一个只会记账的 console。
 
     `get_settings` 用真实实现（它只读文件，正是被测的那段）；`list_devices()`
     走 FakeLDConsole，免得真去 spawn 一个空文件当 exe；`_run` 记下命令并按
     `failure` 决定退出码（实测 `modify --cpu 5` 是 rc 4294966291 + `parameter
     error!`）。
+
+    `writes=True` 时 `_run` 还会把 `modify` 的参数真的落到配置文件上（实测的
+    flag → 字段映射，见 `_apply_modify`）—— `set_resolution` 写完要回读，不落盘
+    就验不出来。`writes=False` 用来模拟「厂商 rc 0 却静默丢掉一部分参数」。
     """
     bin_dir = tmp_path / "LDPlayer"
     bin_dir.mkdir(parents=True, exist_ok=True)
@@ -1255,8 +1262,9 @@ def ld_settings_console(tmp_path, config=None, rows=None, failure=None, index="0
     exe.write_text("")
     config_dir = bin_dir / "vms" / "config"
     config_dir.mkdir(parents=True, exist_ok=True)
+    config_path = config_dir / f"leidian{index}.config"
     if config is not None:
-        (config_dir / f"leidian{index}.config").write_text(config)
+        config_path.write_text(config)
 
     class SettingsLDConsole(FakeLDConsole):
         def __init__(self):
@@ -1270,9 +1278,53 @@ def ld_settings_console(tmp_path, config=None, rows=None, failure=None, index="0
             if self.failure is not None and cmd[0] == self.failure[0]:
                 exit_code, output = self.failure[1]
                 return CmdResult(output, "", exit_code)
+            if writes and cmd[0] == "modify":
+                _apply_modify(config_path, cmd)
             return CmdResult("", "", 0)
 
     return SettingsLDConsole()
+
+
+# 实测的 modify 参数 → 配置字段映射（b22 里那张表）。resolution 单独处理：
+# 一个参数写两处。
+_MODIFY_FIELDS = {
+    "cpu": ("advancedSettings.cpuCount", int),
+    "memory": ("advancedSettings.memorySize", int),
+    "root": ("basicSettings.rootMode", lambda v: v == "1"),
+    "autorotate": ("basicSettings.autoRotate", lambda v: v == "1"),
+    "lockwindow": ("basicSettings.lockWindow", lambda v: v == "1"),
+    "model": ("propertySettings.phoneModel", str),
+    "manufacturer": ("propertySettings.phoneManufacturer", str),
+    "imei": ("propertySettings.phoneIMEI", str),
+    "androidid": ("propertySettings.phoneAndroidId", str),
+    "mac": ("propertySettings.macAddress", str),
+    "pnumber": ("propertySettings.phoneNumber", str),
+    "imsi": ("propertySettings.phoneIMSI", str),
+    "simserial": ("propertySettings.phoneSimSerial", str),
+}
+
+
+def _apply_modify(config_path, cmd):
+    """把一条 `modify --index N --flag V ...` 真的写进配置文件。
+
+    这是 fake 对真厂商行为的模拟，不是库的代码。
+    """
+    payload = json.loads(config_path.read_text()) if config_path.is_file() else {}
+    args = cmd[3:]  # 跳过 "modify"、"--index" 与索引值
+    for flag, value in zip(args[0::2], args[1::2]):
+        name = flag.lstrip("-")
+        if name == "resolution":
+            width, height, dpi = value.split(",")
+            payload["advancedSettings.resolution"] = {
+                "width": int(width),
+                "height": int(height),
+            }
+            payload["advancedSettings.resolutionDpi"] = int(dpi)
+            continue
+        field, convert = _MODIFY_FIELDS[name]
+        payload[field] = convert(value)
+    config_path.write_text(json.dumps(payload))
+
 
 
 def test_ld_get_settings_reads_the_instance_config(tmp_path):
@@ -1384,5 +1436,113 @@ def test_settings_are_soft_members_of_the_interface():
 
     with pytest.raises(NotImplementedError, match="没有实现 set_settings"):
         EmulatorConsole._write_settings(bare, "0", {"cpu": "2"})
+
+
+# --------------------------------------------------------------------------- #
+# 中立配置动词 —— 雷电侧
+# --------------------------------------------------------------------------- #
+
+
+# 实测：`modify --resolution 900,1600,400` 落成这三个字段（一个参数写三处）
+LD_CONFIG_AFTER_RESOLUTION = """{
+    "advancedSettings.resolution": {"width": 900, "height": 1600},
+    "advancedSettings.resolutionDpi": 400
+}"""
+
+
+def test_ld_set_resolution_passes_one_combined_flag(tmp_path):
+    """雷电一次 `--resolution w,h,dpi` —— 与 MuMu 的四个 key 明显不同。"""
+    console = ld_settings_console(tmp_path, config=LD_CONFIG_AFTER_RESOLUTION)
+
+    console.set_resolution("0", 900, 1600, 400)
+
+    assert console.commands == [
+        ["modify", "--index", "0", "--resolution", "900,1600,400"]
+    ]
+
+
+def test_ld_set_resolution_verifies_it_landed(tmp_path):
+    """实测 `--resolution 100,100,10` 是 rc 0、stdout 空，**只有 dpi 落盘**。
+
+    宽高被静默丢掉，而退出码和 stdout 都是空的 —— 唯一能看出来的办法就是回读。
+    """
+    dropped = tmp_path / "LDPlayer" / "vms" / "config" / "leidian0.config"
+    assert dropped.parent.parent.name == "vms"  # 路径拼接与实现一致
+    console = ld_settings_console(
+        tmp_path,
+        config='{"advancedSettings.resolutionDpi": 400}',
+        writes=False,
+    )
+
+    with pytest.raises(RuntimeError, match="静默丢弃"):
+        console.set_resolution("0", 100, 100, 400)
+
+
+def test_ld_set_cpu_refuses_a_core_count_outside_the_help_text(tmp_path):
+    """`ldconsole help` 写的是 `--cpu <1|2|3|4>` —— 本机实测 `--cpu 8` 被拒。"""
+    console = ld_settings_console(tmp_path, config=LD_CONFIG)
+
+    with pytest.raises(ValueError, match=r"1\|2\|3\|4"):
+        console.set_cpu("0", 8)
+
+    assert console.commands == []
+
+
+def test_ld_set_cpu_passes_the_flag(tmp_path):
+    console = ld_settings_console(tmp_path, config=LD_CONFIG)
+
+    console.set_cpu("0", 3)
+
+    assert console.commands == [["modify", "--index", "0", "--cpu", "3"]]
+
+
+def test_ld_set_memory_snaps_to_the_nearest_slot(tmp_path):
+    """实测只认 256/512/768/1024/1536/2048/4096/8192 —— 1000 落在 768 与 1024 之间。"""
+    console = ld_settings_console(tmp_path, config=LD_CONFIG)
+
+    console.set_memory("0", 1000)
+
+    assert console.commands == [["modify", "--index", "0", "--memory", "1024"]]
+
+
+def test_ld_set_memory_takes_megabytes_as_they_are(tmp_path):
+    """中立层与雷电都是 MB —— 这里**不换算**，与 MuMu 不同，值得锁住。"""
+    console = ld_settings_console(tmp_path, config=LD_CONFIG)
+
+    console.set_memory("0", 8192)
+
+    assert console.commands == [["modify", "--index", "0", "--memory", "8192"]]
+
+
+def test_ld_set_memory_refuses_a_value_outside_the_slots(tmp_path):
+    console = ld_settings_console(tmp_path, config=LD_CONFIG)
+
+    with pytest.raises(ValueError, match="8192"):
+        console.set_memory("0", 16384)
+
+    assert console.commands == []
+
+
+def test_ld_set_root_sends_a_digit_not_a_word(tmp_path):
+    """两边都是布尔，但雷电要 `1|0`（不是 true/false）—— 方言收在 adapter 里。"""
+    console = ld_settings_console(tmp_path, config=LD_CONFIG)
+
+    console.set_root("0", True)
+
+    assert console.commands == [["modify", "--index", "0", "--root", "1"]]
+
+
+def test_the_config_verbs_are_soft_members_of_the_interface():
+    """四个中立动词也必须是软成员：没实现的厂商抛 NotImplementedError。"""
+    bare = MumuConsole.__new__(MumuConsole)
+
+    for name, args in (
+        ("set_resolution", ("0", 540, 960, 240)),
+        ("set_cpu", ("0", 2)),
+        ("set_memory", ("0", 2048)),
+        ("set_root", ("0", True)),
+    ):
+        with pytest.raises(NotImplementedError, match=f"没有实现 {name}"):
+            getattr(EmulatorConsole, name)(bare, *args)
 
 

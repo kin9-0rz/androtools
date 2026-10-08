@@ -40,6 +40,16 @@
   注意 MuMu 报的 `key not writable` 说的是「这个 key 只读」，**与实例在不在跑
   无关** —— 同一个只读 key 在停机和运行中的实例上写都是这个错。
 
+- **`EmulatorConsole.set_resolution` / `set_cpu` / `set_memory` / `set_root`** ——
+  同一件事的中立说法，不用记厂商方言。内存单位两边都收 **MB 整数**，CPU 是核数。
+  越界值抛 `ValueError` 且**不下发命令** —— 两家在这件事上都会骗你：实测 MuMu
+  把超范围的宽高**静默夹到边界**（100 → 回读 380、99999 → 4096），雷电则把不
+  接受的宽高**整个丢掉**（`--resolution 100,100,10` 最终只落了 dpi），两次都是
+  rc 0、stdout 干净。所以范围从厂商标的元数据现读（MuMu 的
+  `resolution_width.min/max`、`performance_cpu.list`），不写死在代码里。
+
+  写完之后要立刻看到效果就自己重启实例：与 `set_settings` 一样，本库不替你重启。
+
 上面这些新增成员都是**软成员**（带默认实现，抛 `NotImplementedError`），
 所以已有的自定义 Console 不会因此无法实例化；厂商给不出的能力一律抛
 `NotImplementedError`，不静默失败、不返回假值。

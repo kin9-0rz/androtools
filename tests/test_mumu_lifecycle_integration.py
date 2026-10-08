@@ -1,4 +1,4 @@
-"""真机验收：#3 的 create/clone/rename/delete 与 #4 的 settings 在真的 MuMu 上跑一遍。
+"""真机验收：#3 的 create/clone/rename/delete、#4 的 settings、#5 的中立配置动词。
 
 默认被 `-m "not integration"` 排除，只有显式 `pytest -m integration` 才跑 ——
 它会**真的在你机器上建实例，再删掉**。
@@ -141,3 +141,76 @@ def test_settings_surface_a_read_only_key_on_a_real_instance(mumu):
 
     with pytest.raises(RuntimeError, match="key not writable"):
         console.set_settings(idx, resolution_width="720")
+
+
+def test_set_resolution_writes_all_three_and_lands(mumu):
+    """#5 的核心声明：一次 set_resolution 四个 key 落盘，只读的生效值跟着变。
+
+    实测停机实例上写 `resolution_mode=custom` + 三个 `.custom` 会**立刻**反映到
+    只读的 `resolution_width`/`_height`/`_dpi` 上，不必先启动。
+    """
+    console, created = mumu
+
+    idx = console.create(f"{PREFIX}-分辨率")
+    created.append(idx)
+
+    console.set_resolution(idx, 540, 960, 240)
+
+    after = console.get_settings(idx)
+    assert after["resolution_mode"] == "custom"
+    assert after["resolution_width.custom"] == "540.000000"
+    assert after["resolution_height.custom"] == "960.000000"
+    assert after["resolution_dpi.custom"] == "240.000000"
+    assert after["resolution_width"] == "540.000000", "生效的只读值没跟着走"
+    assert after["resolution_height"] == "960.000000"
+    assert after["resolution_dpi"] == "240.000000"
+
+
+def test_set_resolution_refuses_a_width_the_vendor_would_clamp(mumu):
+    """实测超范围的宽是 rc 0 且不报错，厂商只夹到 380 —— 库得自己拦。"""
+    console, created = mumu
+
+    idx = console.create(f"{PREFIX}-夹取")
+    created.append(idx)
+
+    with pytest.raises(ValueError, match="380"):
+        console.set_resolution(idx, 100, 960, 240)
+
+    assert console.get_settings(idx)["resolution_mode"] == "tablet.1"
+
+
+def test_set_memory_converts_megabytes_to_gigabytes(mumu):
+    """中立层收 MB，MuMu 存 GB —— 2048 要落成 `2.000000`。"""
+    console, created = mumu
+
+    idx = console.create(f"{PREFIX}-内存")
+    created.append(idx)
+
+    console.set_memory(idx, 2048)
+
+    after = console.get_settings(idx)
+    assert after["performance_mem.custom"] == "2.000000"
+    assert after["performance_mode"] == "custom"
+    assert after["vm_mem"] == "2.000000", "生效值没跟着走"
+
+
+def test_set_cpu_refuses_a_count_outside_the_machines_list(mumu):
+    """可选核数随宿主机变，所以要现读 `performance_cpu.list` 再报错。"""
+    console, created = mumu
+
+    idx = console.create(f"{PREFIX}-核数")
+    created.append(idx)
+
+    with pytest.raises(ValueError, match="只能是"):
+        console.set_cpu(idx, 32)
+
+
+def test_set_root_round_trip(mumu):
+    console, created = mumu
+
+    idx = console.create(f"{PREFIX}-root")
+    created.append(idx)
+
+    assert console.get_settings(idx)["root_permission"] == "false"
+    console.set_root(idx, True)
+    assert console.get_settings(idx)["root_permission"] == "true"

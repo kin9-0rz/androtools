@@ -65,6 +65,23 @@ SETTINGS = {
     "root_permission": "true",
 }
 
+# 实测：中立动词要靠这些**只读元数据**自己值域校验（MuMu 越界时会静默夹到边界）。
+# 列表尾巴的 `(best=N)` 是推荐值，不是可选值的一部分。
+SETTINGS_WITH_RANGES = SETTINGS | {
+    "resolution_width.min": "380",
+    "resolution_width.max": "4096",
+    "resolution_height.min": "380",
+    "resolution_height.max": "4096",
+    "resolution_dpi.min": "10",
+    "resolution_dpi.max": "960",
+    "performance_cpu.list": "[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16](best=4)",
+    "performance_mem.list": (
+        "[0.750000,1.000000,1.500000,1.750000,2.000000,3.000000,4.000000,5.000000,"
+        "6.000000,7.000000,8.000000,9.000000,10.000000,11.000000,12.000000,13.000000,"
+        "14.000000,15.000000,16.000000](best=6.000000)"
+    ),
+}
+
 # 实测：写只读 key 的报错。注意它说的是「这个 key 只读」——
 # 在**停机**实例上写只读 key 同样是 -101，与实例在不在跑无关。
 KEY_NOT_WRITABLE = {"errcode": -101, "errmsg": "key not writable"}
@@ -702,3 +719,183 @@ def test_set_settings_refuses_an_empty_call():
         mumu.set_settings("0")
 
     assert mumu.calls == []
+
+
+# --------------------------------------------------------------------------- #
+# 中立配置动词 —— 语义对齐的 set_resolution / set_cpu / set_memory / set_root
+# --------------------------------------------------------------------------- #
+
+
+def ranged(**overrides):
+    """带只读值域元数据的实例，供中立动词值域校验用。"""
+    responses = {
+        "setting -v 0 -a": SETTINGS_WITH_RANGES,
+        "setting -v 0 -k": {"errcode": 0},
+    }
+    responses.update(overrides)
+    return console(**responses)
+
+
+def test_mumu_set_resolution_writes_the_mode_and_three_customs_in_one_call():
+    """`resolution_mode=custom` 必须与三个 `.custom` 在**同一次**调用里写完。"""
+    mumu = ranged()
+
+    mumu.set_resolution("0", 540, 960, 240)
+
+    assert mumu.calls == [
+        ["setting", "-v", "0", "-a"],
+        [
+            "setting",
+            "-v",
+            "0",
+            "-k",
+            "resolution_mode",
+            "-val",
+            "custom",
+            "-k",
+            "resolution_width.custom",
+            "-val",
+            "540",
+            "-k",
+            "resolution_height.custom",
+            "-val",
+            "960",
+            "-k",
+            "resolution_dpi.custom",
+            "-val",
+            "240",
+        ],
+    ]
+
+
+def test_mumu_set_resolution_refuses_a_width_the_vendor_would_silently_clamp():
+    """实测宽 100 → **rc 0**，只是回读变成 380。所以必须在发命令之前拦。"""
+    mumu = ranged()
+
+    with pytest.raises(ValueError, match="380..4096"):
+        mumu.set_resolution("0", 100, 960, 240)
+
+    assert [call[0] for call in mumu.calls] == ["setting"], "只该读元数据，不该有写入"
+    assert mumu.calls == [["setting", "-v", "0", "-a"]]
+
+
+def test_mumu_set_resolution_refuses_a_dpi_the_vendor_would_silently_clamp():
+    """实测 dpi 5000 → rc 0，只是回读变成 960。"""
+    mumu = ranged()
+
+    with pytest.raises(ValueError, match="10..960"):
+        mumu.set_resolution("0", 540, 960, 5000)
+
+    assert mumu.calls == [["setting", "-v", "0", "-a"]]
+
+
+def test_mumu_set_resolution_reads_the_range_from_the_machine_not_from_a_constant():
+    """值域得**现读**：同一份代码在别的机器上边界不同，写死会在那里过期。"""
+    narrow = SETTINGS_WITH_RANGES | {"resolution_width.max": "720"}
+    mumu = ranged(**{"setting -v 0 -a": narrow})
+
+    with pytest.raises(ValueError, match="380..720"):
+        mumu.set_resolution("0", 1080, 960, 240)
+
+
+def test_mumu_set_cpu_writes_the_mode_and_the_core_count():
+    mumu = ranged()
+
+    mumu.set_cpu("0", 8)
+
+    assert mumu.calls[-1] == [
+        "setting",
+        "-v",
+        "0",
+        "-k",
+        "performance_mode",
+        "-val",
+        "custom",
+        "-k",
+        "performance_cpu.custom",
+        "-val",
+        "8",
+    ]
+
+
+def test_mumu_set_cpu_refuses_a_count_outside_the_machines_list():
+    """实测 32 是 `-105 cpu setting not found in list` —— 那句话说不出哪个值行。"""
+    mumu = ranged()
+
+    with pytest.raises(ValueError, match="只能是"):
+        mumu.set_cpu("0", 32)
+
+    assert mumu.calls == [["setting", "-v", "0", "-a"]]
+
+
+def test_mumu_set_memory_converts_megabytes_to_the_vendors_gigabytes():
+    """中立层收 MB，MuMu 存 GB（实测 `1.750000` 这种六位小数字符串）。"""
+    mumu = ranged()
+
+    mumu.set_memory("0", 2048)
+
+    assert mumu.calls[-1] == [
+        "setting",
+        "-v",
+        "0",
+        "-k",
+        "performance_mode",
+        "-val",
+        "custom",
+        "-k",
+        "performance_mem.custom",
+        "-val",
+        "2.000000",
+    ]
+
+
+def test_mumu_set_memory_snaps_to_the_nearest_slot():
+    """实测只有 0.75/1/1.5/1.75/2/3…16 GB 这些档 —— 1000 MB 落在 0.75 与 1 之间。"""
+    mumu = ranged()
+
+    mumu.set_memory("0", 1000)
+
+    assert "performance_mem.custom" in mumu.calls[-1]
+    assert mumu.calls[-1][-1] == "1.000000"
+
+
+def test_mumu_set_memory_refuses_a_value_below_the_smallest_slot():
+    """100 MB 比最小档（0.75 GB）还小 —— 不静默夹到 0.75，那等于给人多要了 7 倍内存。"""
+    mumu = ranged()
+
+    with pytest.raises(ValueError, match="内存"):
+        mumu.set_memory("0", 100)
+
+    assert mumu.calls == [["setting", "-v", "0", "-a"]]
+
+
+def test_mumu_set_root_writes_a_string_boolean():
+    mumu = ranged(**{"setting -v 0 -k": {"root_permission": "false"}})
+
+    mumu.set_root("0", False)
+
+    assert mumu.calls[-1] == [
+        "setting",
+        "-v",
+        "0",
+        "-k",
+        "root_permission",
+        "-val",
+        "false",
+    ]
+
+
+def test_mumu_set_root_writes_true_when_asked():
+    mumu = ranged(**{"setting -v 0 -k": {"root_permission": "true"}})
+
+    mumu.set_root("0", True)
+
+    assert mumu.calls[-1] == [
+        "setting",
+        "-v",
+        "0",
+        "-k",
+        "root_permission",
+        "-val",
+        "true",
+    ]

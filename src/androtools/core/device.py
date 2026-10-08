@@ -298,6 +298,60 @@ class EmulatorConsole(CMD, ABC):
         """
         raise NotImplementedError(f"{type(self).__name__} 没有实现 set_settings()")
 
+    def set_resolution(self, idx: int | str, width: int, height: int, dpi: int) -> None:
+        """把实例的分辨率设成 `width` x `height` @ `dpi`。
+
+        这是**语义对齐**的中立动词，不是方言 key 的包装：两家都同意「宽 x 高 @
+        dpi」这件事，所以它值得一个名字。厂商之间的差异收在 adapter 后面
+        （MuMu 要把 `resolution_mode` 一起置成 `custom` 并写三个 `.custom`，
+        雷电一次 `--resolution w,h,dpi`）。
+
+        越界的值抛 ValueError，**不发下去**。这一条是必需的、不是保险：实测两家
+        都会**静默**处理越界的分辨率 —— MuMu 把宽 100 夹到 380、99999 夹到
+        4096、dpi 5000 夹到 960（**都是 rc 0、没有报错**），雷电则把越界的宽高
+        **整个丢掉**（`--resolution 100,100,10` → rc 0，只有 dpi 落盘）。不自己
+        拦，就等于悄悄给用户另一个分辨率。
+
+        生效时间见 `set_settings`：值在实例下次启动时才生效，本层不替你重启。
+        """
+        raise NotImplementedError(f"{type(self).__name__} 没有实现 set_resolution()")
+
+    def set_cpu(self, idx: int | str, cores: int) -> None:
+        """把实例的 CPU 设成 `cores` 核。
+
+        单位是**核数**（整数），这是两家都同意的那部分。可用值域是厂商定的：
+        雷电只认 `1|2|3|4`；MuMu 的可选列表**随宿主机变**（实测本机 1..16，
+        best=4），所以 MuMu 的 adapter 必须先把它读出来再核对。
+
+        越界抛 ValueError、不发下去 —— 厂商自己倒是会拒（MuMu
+        `-105 cpu setting not found in list`、雷电 `parameter error!`），但那句话
+        只说得出「不行」，说不出**哪个值行**。
+        """
+        raise NotImplementedError(f"{type(self).__name__} 没有实现 set_cpu()")
+
+    def set_memory(self, idx: int | str, megabytes: int) -> None:
+        """把实例的内存设成 `megabytes` MB。
+
+        单位统一是 **MB（整数）**—— 这是中立层的约定，不是任何一家的方言：
+        MuMu 用 GB（`performance_mem.custom = "1.750000"`），雷电用 MB
+        （`--memory 2048`）。adapter 负责换算。
+
+        两家都只认一**档**离散的值（实测 MuMu 0.75/1/1.5/1.75/2/3…16 GB，雷电
+        8 档 MB）。落在档位之间时**就近取值**（并列取大，即宁可多给不肯少给）；
+        整个档位范围之外抛 ValueError，不静默夹到边界。
+
+        生效时间见 `set_settings`。
+        """
+        raise NotImplementedError(f"{type(self).__name__} 没有实现 set_memory()")
+
+    def set_root(self, idx: int | str, enabled: bool) -> None:
+        """开/关实例的 root 权限。两家都是布尔，是这里差异最小的一个动词。
+
+        注意它只改**配置**：已经跑着的实例不会因此当场掉权限或拿到权限，要等
+        下次启动（见 `set_settings`）。
+        """
+        raise NotImplementedError(f"{type(self).__name__} 没有实现 set_root()")
+
     def fingerprint(self, idx: int | str) -> str | None:
         """这个实例在 adb 上可被认出来的唯一值；拿不出就返回 None。
 

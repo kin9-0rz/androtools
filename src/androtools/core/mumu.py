@@ -36,6 +36,70 @@ def _index_sort_key(idx: str) -> tuple[int, int]:
     return (0, int(idx)) if idx.isdigit() else (1, 0)
 
 
+_CPU_LIST_KEY = "performance_cpu.list"
+_MEM_LIST_KEY = "performance_mem.list"
+_RESOLUTION_BOUNDS = {
+    "width": ("resolution_width.min", "resolution_width.max"),
+    "height": ("resolution_height.min", "resolution_height.max"),
+    "dpi": ("resolution_dpi.min", "resolution_dpi.max"),
+}
+
+
+def _list_values(text: str) -> list[str]:
+    """解 `[1,2,...,16](best=4)` 这种列表。
+
+    厂商把「可选值」和「推荐值」挤在同一个字符串里，推荐值是括号后面的一句
+    `(best=4)`，不是列表的一部分，要剪掉。本库只用可选值 —— 推荐值不能替用户
+    选：实测新建实例的 `performance_cpu.custom` 是 4（恰好等于 best），
+    而 resolution 与 memory 的默认值就**不是**括号里那个 best（新建实例是
+    tablet.1 / 4 GB，best 是 6 GB）。
+    """
+    body = text.partition("(")[0].strip()
+    return [item.strip() for item in body.strip("[]").split(",") if item.strip()]
+
+
+def _bounded(key: str, value: int, bounds: dict[str, tuple[str, str]], settings: dict[str, str]) -> int:
+    """用一个只读 key 的 `.min` / `.max` 查范围 —— **不要写死数字**。
+
+    实测本机是宽高 380..4096、dpi 10..960，但这是宿主机给的，写在代码里就会
+    在别的机器上过期。读不到边界时放行（交给厂商拒，总比乱拦好）。
+    """
+    low_key, high_key = bounds[key]
+    low, high = settings.get(low_key), settings.get(high_key)
+    if low is None or high is None:
+        return value
+    low_value, high_value = int(float(low)), int(float(high))
+    if not low_value <= value <= high_value:
+        raise ValueError(
+            f"{key} 要在 {low_value}..{high_value} 之间（这台机器的 {low_key} / "
+            f"{high_key}），给的是 {value}。实测越界值厂商会**静默**夹到边界，"
+            f"所以这里拦下来而不是发下去。"
+        )
+    return value
+
+
+def _nearest(candidates: list[float], value: float, *, what: str) -> float:
+    """从厂商给的离散档位里选最接近 `value` 的一档（并列取大）。
+
+    并列取大 = 宁可多给不肯少给：少给内存会让虚拟机跑不动，多给只是占些内存。
+    范围外抛 ValueError —— 不静默夹到边界，那等于改了用户要的数。
+    """
+    if not candidates:
+        raise ValueError(f"厂商没有报出可用的{what}档位，无法校验 {value}。")
+    low, high = min(candidates), max(candidates)
+    if not low <= value <= high:
+        raise ValueError(f"{what}要在 {low:g}..{high:g} 之间（厂商给的档位），给的是 {value}。")
+    return min(candidates, key=lambda candidate: (abs(candidate - value), -candidate))
+
+
+def _mem_list_mb(settings: dict[str, str]) -> list[float]:
+    """`performance_mem.list` 的单位是 **GB**（实测）。中立层一律 MB。"""
+    list_key = settings.get(_MEM_LIST_KEY)
+    if not list_key:
+        return []
+    return [float(item) * 1024 for item in _list_values(list_key)]
+
+
 def _status_of(raw: dict[str, Any]) -> DeviceStatus:
     """MuMu 直接给出进程状态，不需要像雷电那样推断。
 
@@ -336,6 +400,69 @@ class MumuConsole(EmulatorConsole):
         for key, value in kv.items():
             cmd += ["-k", key, "-val", value]
         self._call(*cmd)
+
+    def set_resolution(self, idx: int | str, width: int, height: int, dpi: int) -> None:
+        """四个 key 一次写完：`resolution_mode=custom` + 三个 `.custom`。
+
+        三个数值都先用只读的 `resolution_width.min/max`（本机 380..4096）、
+        `resolution_height.min/max`、`resolution_dpi.min/max`（本机 10..960）查范围
+        —— 这是**必需**的：实测超范围的宽高/dpi 是 **rc 0 且不报错**，厂商只把它
+        夹到边界（宽 100 → 回读 380，99999 → 4096，dpi 5000 → 960）。不管就等于
+        悄悄给人另一个分辨率。
+
+        `resolution_mode` 必须一起置 `custom`，否则写了 `.custom` 也不生效。
+        """
+        settings = self.get_settings(idx)
+        _bounded("width", width, _RESOLUTION_BOUNDS, settings)
+        _bounded("height", height, _RESOLUTION_BOUNDS, settings)
+        _bounded("dpi", dpi, _RESOLUTION_BOUNDS, settings)
+        self.set_settings(
+            idx,
+            resolution_mode="custom",
+            **{
+                "resolution_width.custom": str(width),
+                "resolution_height.custom": str(height),
+                "resolution_dpi.custom": str(dpi),
+            },
+        )
+
+    def set_cpu(self, idx: int | str, cores: int) -> None:
+        """先读 `performance_cpu.list` 再核 —— 可选值**随宿主机变**，不能写死。
+
+        实测本机 `[1,2,...,16](best=4)`，但把 1..16 写在代码里，在 CPU 少的机器上
+        就会把厂商支持得起的值拦成错误。越界时用厂商列出来报错，那句话才说得清
+        **哪个值行**（厂商自己的 `-105 cpu setting not found in list` 说不出）。
+        """
+        settings = self.get_settings(idx)
+        candidates = _list_values(settings.get(_CPU_LIST_KEY, ""))
+        if str(cores) not in candidates:
+            raise ValueError(
+                f"CPU 核数只能是 {candidates} 之一（这台机器的 {_CPU_LIST_KEY}），"
+                f"给的是 {cores}。"
+            )
+        self.set_settings(idx, performance_mode="custom", **{"performance_cpu.custom": str(cores)})
+
+    def set_memory(self, idx: int | str, megabytes: int) -> None:
+        """中立层收 MB，MuMu 存 **GB**（实测 `performance_mem.custom = "1.750000"`）。
+
+        档位从 `performance_mem.list` 读（本机 `[0.75,1,1.5,1.75,2,3,...,16]` GB），
+        换成分成 MB 档位后**就近取值**（并列取大）：落在两档之间时不报错，因为
+        两家本来就只认离散档位；整个范围外才抛 ValueError。
+
+        厂商自己也会拒（实测 `performance_mem.custom=999` →
+        `-106 mem setting not found in list`），但读一次档位才说得清**哪个值行**。
+        """
+        settings = self.get_settings(idx)
+        picked = _nearest(_mem_list_mb(settings), float(megabytes), what="内存")
+        self.set_settings(
+            idx,
+            performance_mode="custom",
+            **{"performance_mem.custom": f"{picked / 1024:.6f}"},
+        )
+
+    def set_root(self, idx: int | str, enabled: bool) -> None:
+        """`root_permission` 本身就是 true/false —— 两家差异最小的一个动词。"""
+        self.set_settings(idx, root_permission="true" if enabled else "false")
 
     def launch_device(self, idx: int | str):
         return self._run(["control", "-v", str(idx), "launch"])
