@@ -1,4 +1,5 @@
-"""真机验收：#3 的 create/clone/rename/delete、#4 的 settings、#5 的中立配置动词。
+"""真机验收：#3 的 create/clone/rename/delete、#4 的 settings、#5 的中立配置动词、
+#6 的 simulation、#7 的 play()/run()。
 
 默认被 `-m "not integration"` 排除，只有显式 `pytest -m integration` 才跑 ——
 它会**真的在你机器上建实例，再删掉**。
@@ -15,11 +16,13 @@ MuMu 的方言细节见 `MumuConsole.create` / `clone` / `delete` / `rename` 的
 那里记的是本机实测（MuMu Player 6.8.2.0）。
 """
 
+import json
 from pathlib import Path
 
 import pytest
 
-from androtools.core.mumu import MumuConsole
+from androtools.core.mumu import MumuConsole, MumuPlayer
+from androtools.core.session import EmulatorSession
 
 pytestmark = pytest.mark.integration
 
@@ -287,3 +290,42 @@ def test_the_vendor_answers_any_simulation_key_with_a_shrug(mumu):
     created.append(idx)
 
     assert console._call("simulation", "-v", idx, "-sk", "bogus_key") == {"bogus_key": ""}
+
+
+# --------------------------------------------------------------------------- #
+# #7：清单 → 可操作对象，以及逃生舱
+# --------------------------------------------------------------------------- #
+
+
+def test_play_turns_a_listed_instance_into_a_player(mumu):
+    """调用方不必知道厂商的 session 类叫什么。"""
+    console, _ = mumu
+
+    instance = console.list_instances()[0]
+
+    player = console.play(instance)
+
+    assert isinstance(player, EmulatorSession)
+    assert isinstance(player, MumuPlayer)
+    assert player.index == instance.index
+    assert player.console is console
+
+
+def test_run_hands_back_the_raw_text_of_a_real_command(mumu):
+    """逃生舱不做任何解析 —— 拿回来的是原文，parse 留给调用方。"""
+    console, _ = mumu
+
+    result = console.run("info", "-v", "all")
+
+    payload = json.loads(result.output)
+    assert payload, "至少得有一台实例，否则这个断言没意义"
+    assert all(isinstance(raw, dict) for raw in payload.values())
+
+
+def test_run_can_drive_a_subcommand_no_neutral_verb_covers(mumu):
+    """逃生舱的真实用途：中立动词没包住的长尾（`sort` 就是一个）。"""
+    console, _ = mumu
+
+    result = console.run("sort")
+
+    assert result.exit_code == 0

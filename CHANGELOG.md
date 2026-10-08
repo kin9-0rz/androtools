@@ -66,9 +66,24 @@
   落到 MuMu 的 `phone_miit`）；MuMu 上「从未设过」与「设成了空」是同一个信号，
   雷电则永远有一份具体值。
 
-上面这些新增成员都是**软成员**（带默认实现，抛 `NotImplementedError`），
-所以已有的自定义 Console 不会因此无法实例化；厂商给不出的能力一律抛
-`NotImplementedError`，不静默失败、不返回假值。
+- **`EmulatorConsole.play(instance)`** —— 清单的下一站：把 `list_instances()` 拿到的
+  实例变成可操作的 session（MuMu 是 `MumuPlayer`，雷电是 `LDPlayer`），调用方
+  不必知道厂商的类名。收 `EmulatorInstance` 而不是 `EmulatorInfo`，因为手上一定
+  是 `list_instances()` 给的那个。**只构造、不做 IO** —— 不在这里
+  `refresh_serial()`，那件事仍由 session 的 `launch()` / `ensure_connected()` 负责。
+
+- **`EmulatorConsole.run(*args)`** —— 逃生舱：原样跑一条厂商命令，拿回
+  `CmdResult`，**不做任何解析**（要 JSON 自己 parse）。中立动词没包住的长尾
+  （`sort`、`control tool func --name screenshot`）走它。
+
+  这是 interface 上唯一一个有跨厂商共性的新成员，所以它取材于真实现
+  （借用继承来的 `CMD._run`），**不是软成员**。两条局限调用方自己扛：不看返回码
+  （非零也不抛，看 `result.has_error()` / `result.exit_code`）；没有 `encoding=`
+  通道，用的是 adapter 声明的厂商默认编码（MuMu 是 UTF-8，雷电是 GBK）。
+
+上面这些新增成员里除了 `run()`，其余都是**软成员**（带默认实现，抛
+`NotImplementedError`），所以已有的自定义 Console 不会因此无法实例化；厂商给
+不出的能力一律抛 `NotImplementedError`，不静默失败、不返回假值。
 
 ### 修复
 

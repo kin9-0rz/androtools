@@ -10,6 +10,7 @@
 import inspect
 import json
 import subprocess
+import sys
 import threading
 import pytest
 
@@ -17,6 +18,7 @@ from androtools.android_sdk.platform_tools import (
     AmbiguousDeviceError,
     DeviceOfflineError,
 )
+from androtools.cmd import CMD
 from androtools.cmd.result import CmdResult
 from helpers import make_emulator_info
 from androtools.core.constants import KeyEvent
@@ -1649,3 +1651,50 @@ def test_set_simulation_validates_the_key_before_reaching_any_vendor():
 
     with pytest.raises(ValueError, match="不认识模拟字段"):
         EmulatorConsole.set_simulation(bare, "0", "serialno", "123")
+
+
+# --------------------------------------------------------------------------- #
+# play() / run() —— 清单到可操作对象的通路，以及逃生舱
+# --------------------------------------------------------------------------- #
+
+
+def test_ld_play_builds_an_ldplayer_without_touching_the_console(tmp_path):
+    # 厂商自带的 adb 就在 Console 旁边（`bundled_adb_path`），放个空的 adb.exe
+    # 进去，play() 构造真 ADB 时就不会去找 PATH 上的 adb —— 那会让用例依赖机器。
+    (tmp_path / "adb.exe").write_text("")
+    console = ScriptedLDConsole([ld_row("0", 1111, 2222)])
+    console.bin_path = str(tmp_path / "ldconsole.exe")
+    instance = console.list_instances()[0]
+    console.calls.clear()
+
+    player = console.play(instance)
+
+    assert isinstance(player, LDPlayer)
+    assert player.index == "0"
+    assert player.console is console
+    assert console.calls == [], "play() 只构造，不该产生 IO"
+
+
+def test_ld_run_passes_the_arguments_through_untouched():
+    console = ScriptedLDConsole([ld_row("0", 1111, 2222)])
+
+    console.run("isrunning", "--index", "0")
+
+    assert console.calls == [["isrunning", "--index", "0"]]
+
+
+class _RealLDConsole(LDConsole):
+    """真的会 fork 子进程的 console，用来验 `run()` 按 adapter 声明的 gbk 解。"""
+
+    def __init__(self) -> None:
+        CMD.__init__(self, sys.executable)
+        self.encoding = "gbk"
+
+
+def test_ld_run_decodes_gbk_like_the_rest_of_the_console():
+    """ldconsole 发 GBK，而逃生舱用的是 adapter 声明的默认编码。"""
+    real = _RealLDConsole()
+
+    result = real.run("-c", "import sys; sys.stdout.buffer.write('雷电'.encode('gbk'))")
+
+    assert result.output == "雷电"

@@ -8,11 +8,13 @@ JSON fixture 全部是从 D:\\Program Files\\Netease\\MuMu\\nx_main 实测粘回
 """
 
 import json
+import sys
 
 import pytest
 
 import androtools.core.mumu as mumu_module
 from helpers import make_emulator_info
+from androtools.cmd import CMD
 from androtools.cmd.result import CmdResult
 from androtools.core.constants import KeyEvent
 from androtools.core.device import EmulatorConsole, DeviceStatus, EmulatorInfo, EmulatorInstance
@@ -1031,3 +1033,90 @@ def test_mumu_set_simulation_refuses_an_index_that_does_not_exist():
         mumu.set_simulation("9", "mac", "00DB48FD6270")
 
     assert not any(call[0] == "simulation" and "-sv" in call for call in mumu.calls)
+
+
+# --------------------------------------------------------------------------- #
+# play() —— 清单到可操作对象的通路
+# --------------------------------------------------------------------------- #
+
+
+def _console_pointing_at(tmp_path, name: str = "MuMuManager.exe") -> MumuConsole:
+    """把 fake console 的 bin_path 指进 tmp_path，并在它旁边放一个空的 adb.exe。
+
+    厂商自带的 adb 就在 Console 旁边（`bundled_adb_path`），放个空文件进去，
+    play() 构造真 ADB 时就不会去找 PATH 上的 adb —— 那会让用例依赖机器。
+    """
+    (tmp_path / "adb.exe").write_text("")
+    mumu = console()
+    mumu.bin_path = str(tmp_path / name)
+    return mumu
+
+
+def test_mumu_play_builds_a_mumu_player_without_touching_the_console(tmp_path):
+    mumu = _console_pointing_at(tmp_path)
+    instance = mumu.list_instances()[1]
+    mumu.calls.clear()
+
+    player = mumu.play(instance)
+
+    assert isinstance(player, MumuPlayer)
+    assert player.index == "1"
+    assert player.console is mumu
+    assert mumu.calls == [], "play() 只构造，不该产生 IO"
+
+
+def test_play_is_a_soft_member_of_the_interface():
+    bare = MumuConsole.__new__(MumuConsole)
+
+    with pytest.raises(NotImplementedError, match="没有实现 play"):
+        EmulatorConsole.play(bare, make_emulator_info())
+
+
+# --------------------------------------------------------------------------- #
+# run() —— 逃生舱
+# --------------------------------------------------------------------------- #
+
+
+class _RealConsole(MumuConsole):
+    """真的会 fork 子进程的 console，专门用来验 `run()` 的两条局限。
+
+    `bin_path` 指向 python 自己 —— 不用装 MuMuManager 就能验「非零退出码不抛」
+    和「按 adapter 声明的编码解」，比给 ScriptedMumuConsole 再加一层假退出码
+    更接近真实路径。
+    """
+
+    def __init__(self) -> None:
+        CMD.__init__(self, sys.executable)
+        self.encoding = "utf-8"
+
+
+def test_mumu_run_passes_the_arguments_through_without_parsing():
+    """逃生舱给的是原始文本，不是解析过的 dict。"""
+    mumu = console()
+
+    result = mumu.run("info", "-v", "all")
+
+    assert mumu.calls == [["info", "-v", "all"]]
+    assert json.loads(result.output) == ALL
+
+
+def test_run_does_not_raise_when_the_command_fails():
+    """沿用 `CMD._run` 的现状：不看返回码，失败也照常返回。"""
+    real = _RealConsole()
+
+    result = real.run("-c", "import sys; sys.stderr.write('boom'); sys.exit(3)")
+
+    assert result.exit_code == 3
+    assert result.has_error()
+    assert "boom" in result.error
+
+
+def test_run_decodes_with_the_encoding_the_adapter_declared():
+    """MuMu 的 stdout 是 UTF-8，与本机 locale 无关 —— 逃生舱也吃这个默认。"""
+    real = _RealConsole()
+
+    result = real.run(
+        "-c", "import sys; sys.stdout.buffer.write('测试'.encode('utf-8'))"
+    )
+
+    assert result.output == "测试"

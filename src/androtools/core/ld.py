@@ -16,7 +16,7 @@ from androtools.core.device import (
     bundled_adb_path,
 )
 from androtools.core.identity import IDENTITY_CMD, normalize_mac, parse_mac
-from androtools.core.session import ConsoleSession
+from androtools.core.session import ConsoleSession, EmulatorSession
 
 
 def _numeric_index(idx: str) -> int:
@@ -190,6 +190,10 @@ class LDConsole(EmulatorConsole):
             status=DeviceStatus.BOOT if pids.is_running() else DeviceStatus.STOP,
             android_version=None,
         )
+
+    def play(self, instance: EmulatorInstance) -> EmulatorSession:
+        """雷电的 session 是 `LDPlayer`；`console=self` 复用当前 console。"""
+        return LDPlayer(instance.info, console=self)
 
     def probe_state(self, idx: int | str) -> DeviceStatus:
         """雷电不给状态字符串，只能看两个进程在不在。"""

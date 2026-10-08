@@ -99,3 +99,18 @@ _Avoid_: 配置、参数（没说清是哪一层：方言 key 还是中立动词
 rc 0 的空值；雷电根本没有 simulation 概念，五项都挤在 `modify` 里。所以「key 认不认识」
 由中立层自己校验，不指望厂商拒绝。
 _Avoid_: 指纹（那是 `fingerprint()`，用来**反查**实例身份）、伪装
+
+**通路（play）**:
+`list_instances()` 的下一站 —— 把一个 `EmulatorInstance` 变成可操作的 session
+（`MumuPlayer` / `LDPlayer`），调用方不必知道厂商的类名。收实例而不是
+`EmulatorInfo`，因为手上一定是 `list_instances()` 给的那个。它是**只构造、不做 IO**
+的：serial 的确定、`adb connect` 都属于 session 的启动流程。
+_Avoid_: 打开、启动（`play()` 不启动模拟器；启动是 session 的 `launch()`）
+
+**逃生舱（Escape hatch）**:
+`EmulatorConsole.run(*args)` —— 参数原样交给厂商 CLI，拿回 `CmdResult`，**不做任何
+解析**。它存在是因为中立动词只覆盖日常那几件事：`sort`、`control tool func`、厂商将来
+新增的子命令都没有中立名字，但也不该因此不可达。它也是 interface 上唯一一个有
+跨厂商共性的新成员（其余都是软成员，厂商给不出就抛 `NotImplementedError`）。
+调用方自己扛：返回码不由它检查，编码用 adapter 声明的厂商默认值。
+_Avoid_: 通用入口、透传（没说清它不解析，也不负责报错）

@@ -12,7 +12,7 @@ from androtools.core.device import (
     EmulatorInstance,
     bundled_adb_path,
 )
-from androtools.core.session import ConsoleSession
+from androtools.core.session import ConsoleSession, EmulatorSession
 
 
 def _normalize_android_version(value: Any) -> str | None:
@@ -207,6 +207,11 @@ class MumuConsole(EmulatorConsole):
             status=_status_of(raw),
             android_version=_normalize_android_version(raw.get("android_version")),
         )
+
+    def play(self, instance: EmulatorInstance) -> EmulatorSession:
+        """MuMu 的 session 是 `MumuPlayer`；`console=self` 让它接着用这个 console，
+        而不是拿 `instance.info.console_path` 再建一个。"""
+        return MumuPlayer(instance.info, console=self)
 
     def fingerprint(self, idx: int | str) -> str | None:
         """拿不出来 —— 恒为 None，所以 `identify` 会跳过 MuMu。

@@ -2,10 +2,15 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 
 from androtools.cmd import CMD
 from androtools.cmd.result import CmdResult
+
+if TYPE_CHECKING:
+    # session 反过来要 import device（DeviceInfo / EmulatorConsole），运行时引它会
+    # 成环。所以只在类型检查时引，注解写成字符串。
+    from androtools.core.session import EmulatorSession
 
 
 def bundled_adb_path(console_path: str | None) -> str:
@@ -424,3 +429,51 @@ class EmulatorConsole(CMD, ABC):
         那会让任何读不出指纹的设备都「匹配上」。
         """
         raise NotImplementedError(f"{type(self).__name__} 没有实现 fingerprint()")
+
+    # ---------------------------------------------------------------------- #
+    #                       起点 → 可操作对象                                 #
+    # ---------------------------------------------------------------------- #
+
+    def play(self, instance: EmulatorInstance) -> "EmulatorSession":
+        """把清单里的一个实例变成可操作的 session。
+
+        这是 `list_instances()` 的下一站：调用方先拿到快照，挑一台交给它，不必
+        知道厂商的 session 类叫什么（MuMu 是 MumuPlayer，雷电是 LDPlayer）。
+
+        收 `EmulatorInstance` 而不是 `EmulatorInfo`，因为调用方手上一定是从
+        `list_instances()` 拿到的那个对象；内部只读 `instance.info`。
+
+        **只构造，不做 IO** —— 不在这里 `refresh_serial()`。serial 的确定仍由
+        session 自己负责：MuMu 重启后 adb 端口会变，`MumuPlayer.launch()` 会在
+        启动流程里重新取一次，`ensure_connected()` 才会去 `adb connect`。
+        要「确保能连上」就调 session 的那些方法，而不是让构造产生副作用。
+        """
+        raise NotImplementedError(f"{type(self).__name__} 没有实现 play()")
+
+    # 覆盖 `CMD.run(is_reset=...)` —— 那个是「先 append_args() 攒参数、再 run()
+    # 执行」的两步协议，console 要的是「给什么跑什么」。签名不相容是故意的，
+    # 所以这里压掉 override 检查；console 不攒参数，`_args` 一直是空的。
+    def run(self, *args: str) -> CmdResult:  # type: ignore[override]
+        """逃生舱：原样跑一条厂商命令，返回 `CmdResult`，**不做任何解析**。
+
+        中立动词只覆盖日常那几件事，剩下的长尾（`sort`、`control tool func`、
+        未来版本新增的子命令）从这里透传：
+
+            console.run("sort")
+            console.run("control", "-v", "1", "tool", "func", "--name", "screenshot")
+
+        这是 interface 上唯一一个**有跨厂商共性**的新成员，所以在基类里就给出
+        真实现（借用继承来的 `CMD._run`），而不是软成员。也正因如此，它
+        **覆盖了 `CMD.run`**：那个是「先 `append_args()` 攒参数、再 `run()` 执行」
+        的两步协议，而这里要的是「给什么跑什么」的一步调用。console 不攒参数，
+        `_args` 一直是空的。
+
+        两条局限，调用方自己扛：
+
+        1. **不看返回码** —— `CMD._run` 的现状如此，非零也不会抛。看
+           `result.has_error()` 或 `result.exit_code`（后者只单向可信：非零一定是
+           失败，零不能证明成功）。
+        2. **没有编码通道** —— `run(*args)` 收不了 `encoding=`，用 adapter 声明的
+           默认编码解（MuMu 是 utf-8，雷电是 gbk）。想换只能自己调 `_run`。
+        """
+        return self._run([*args])
