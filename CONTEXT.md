@@ -33,7 +33,13 @@ _Avoid_: 端口冲突、serial 不对（说清是「连到了别人」还是「�
 给一个 adb Serial，问它是哪个厂商的哪个实例。它核对指纹，**不问厂商 Console** ——
 雷电和 MuMu 撞号时，厂商自己的 CLI 会安静地返回另一家的设备。
 目前只有雷电能反查（`fingerprint` 有值），MuMu 拿不出两边都读得到的指纹，返回 `None`。
-_Avoid_: 列举设备（反查问的是一个具体 serial；「列出所有在线设备」是另一件事，它还要处理一台机器在 adb 上有多个名字：实测 MuMu 那台同时是`emulator-5556`、`127.0.0.1:16416`、`127.0.0.1:5557`）
+
+**物理设备**（Physical Device）:
+一台真实的机器，与它在 adb server 里有几个 Serial 名字无关。同一台机器可能有多个
+adb 名字（MuMu 自注册的 `emulator-555X` + connect 出来的 `127.0.0.1:<port>`），
+所以 `adb devices` 的条目数不等于设备数。`discover()` 按 wlan0 MAC 去重 —— 同一台机器
+的多个名字 MAC 相同，不同机器一定不同。
+_Avoid_: Adb Target（那是 adb 自己的寻址概念，与「几台机器」无关）
 
 **Index**:
 模拟器在厂商 Console 中的稳定编号，由用户在厂商工具里分配，跨重启不变。

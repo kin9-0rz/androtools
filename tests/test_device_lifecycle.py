@@ -26,7 +26,7 @@ from androtools.core.device import (
 )
 from androtools.core.ld import LDConsole, LDPlayer
 from androtools.core.mumu import MumuConsole, MumuPlayer
-from androtools.core.identity import InstanceIdentity, identify
+from androtools.core.identity import DiscoveredDevice, InstanceIdentity, discover, identify
 
 from androtools.core.session import EmulatorSession
 from androtools.core.shell import AndroidShell
@@ -780,4 +780,165 @@ def test_both_consoles_can_enumerate_their_instances(tmp_path):
 
     assert TwoLD().instances() == ["0", "1"]
     assert TwoMuMu().instances() == ["0", "1"]
+
+
+# --------------------------------------------------------------------------- #
+# discover：列出在线设备，一台物理机器算一台
+# --------------------------------------------------------------------------- #
+#
+# 为什么要去重：MuMu 会自己注册一个 emulator-555X，而 MumuPlayer.ensure_connected()
+# 还会 adb connect 它自己那个 127.0.0.1:<adb_port> —— 同一台机器于是有两个 adb 名字。
+# 实测：跑一次 MumuPlayer.get_status() 之后，adb 上 4 个条目只对应 3 台机器，
+# 127.0.0.1:16416 与 emulator-5556 的 wlan0 MAC 都是 0879791ACF72。
+# 直接把 adb devices 翻译成列表会把 3 台说成 4 台。
+
+
+def mac_of(text):
+    return CmdResult(text, "")
+
+
+def three_machines_one_with_two_names():
+    """手机 + 雷电 + MuMu，其中 MuMu 有两个 adb 名字。
+
+    每台都声明了 ro.product.model 和 wlan0 MAC。
+    """
+    model = CmdResult("MODEL", "")
+    return FakeADB(
+        responses={("getprop", "ro.product.model"): model},
+        devices=[
+            ("bdfbafac", "device", "1"),
+            ("127.0.0.1:16416", "device", "2"),
+            ("emulator-5554", "device", "3"),
+            ("emulator-5556", "device", "4"),
+        ],
+        serial_responses={
+            "bdfbafac": {
+                ("ip", "addr", "show", "wlan0"): mac_of("link/ether 96:c7:44:4e:d3:37 brd ff:ff:ff:ff:ff:ff"),
+                ("getprop", "ro.product.model"): CmdResult("PFFM10", ""),
+            },
+            "127.0.0.1:16416": {
+                ("ip", "addr", "show", "wlan0"): mac_of("link/ether 08:79:79:1a:cf:72 brd ff:ff:ff:ff:ff:ff"),
+                ("getprop", "ro.product.model"): CmdResult("SM-A5560", ""),
+            },
+            "emulator-5554": {
+                ("ip", "addr", "show", "wlan0"): mac_of(LD_WLAN0),
+                ("getprop", "ro.product.model"): CmdResult("GM1910", ""),
+            },
+            "emulator-5556": {
+                ("ip", "addr", "show", "wlan0"): mac_of("link/ether 08:79:79:1a:cf:72 brd ff:ff:ff:ff:ff:ff"),
+                ("getprop", "ro.product.model"): CmdResult("SM-A5560", ""),
+            },
+        },
+    )
+
+
+def test_discover_counts_physical_machines_not_adb_entries():
+    entries = discover(three_machines_one_with_two_names())
+
+    assert len(entries) == 3
+
+
+def test_discover_keeps_both_names_of_the_same_machine():
+    """别名必须留着 —— 用户可能就是拿着 127.0.0.1:16416 来的。"""
+    entries = discover(three_machines_one_with_two_names())
+    mumu = [e for e in entries if "emulator-5556" in e.serials][0]
+
+    assert sorted(mumu.serials) == ["127.0.0.1:16416", "emulator-5556"]
+
+
+def test_discover_records_the_primary_serial_as_the_one_adb_lists_first():
+    entries = discover(three_machines_one_with_two_names())
+    mumu = [e for e in entries if "emulator-5556" in e.serials][0]
+
+    assert mumu.serial == "127.0.0.1:16416"
+
+
+def test_discover_identifies_the_ld_instances(tmp_path):
+    """认得出的就标出来，认不出的留空 —— 型号不能代替身份。"""
+    console = ld_fingerprint_console(tmp_path, mac="00DB48FD6270")
+
+    entries = discover(three_machines_one_with_two_names(), [("雷电", console)])
+
+    ld = [e for e in entries if "emulator-5554" in e.serials][0]
+    assert ld.identity == InstanceIdentity(
+        vendor="雷电", index="0", serial="emulator-5554"
+    )
+    mumu = [e for e in entries if "emulator-5556" in e.serials][0]
+    assert mumu.identity is None  # MuMu 拿不出指纹
+
+
+def test_discover_leaves_the_phone_without_an_identity(tmp_path):
+    entries = discover(
+        three_machines_one_with_two_names(),
+        [("雷电", ld_fingerprint_console(tmp_path, mac="00DB48FD6270"))],
+    )
+
+    phone = [e for e in entries if "bdfbafac" in e.serials][0]
+
+    assert phone.identity is None
+    assert phone.serials == ["bdfbafac"]
+
+
+def test_discover_names_the_device_from_its_model():
+    entries = discover(three_machines_one_with_two_names())
+
+    names = {e.serial: e.name for e in entries}
+
+    assert names["emulator-5554"] == "GM1910"
+    assert names["bdfbafac"] == "PFFM10"
+
+
+def test_discover_splits_two_machines_that_look_alike():
+    """两台同型号的设备 MAC 不同，必须是两条。"""
+    adb = FakeADB(
+        responses={("getprop", "ro.product.model"): CmdResult("GM1910", "")},
+        devices=[("emulator-5554", "device", "1"), ("emulator-5556", "device", "2")],
+        serial_responses={
+            "emulator-5554": {("ip", "addr", "show", "wlan0"): mac_of("link/ether 00:db:48:fd:62:70 brd ff:ff:ff:ff:ff:ff")},
+            "emulator-5556": {("ip", "addr", "show", "wlan0"): mac_of("link/ether 00:db:0b:fc:4d:61 brd ff:ff:ff:ff:ff:ff")},
+        },
+    )
+
+    assert len(discover(adb)) == 2
+
+
+def test_discover_keeps_a_device_it_cannot_ask():
+    """离线或正在重启的设备问不到 MAC，但它确实在线，不能从列表里消失。"""
+
+    class DeafADB(FakeADB):
+        def run_shell_cmd(self, cmd, serial=None, timeout=30):
+            if serial == "emulator-5554":
+                self.calls.append(AdbCall("run_shell_cmd", list(cmd), serial, timeout))
+                raise RuntimeError("device offline")
+            return super().run_shell_cmd(cmd, serial, timeout)
+
+    adb = DeafADB(
+        responses={("getprop", "ro.product.model"): CmdResult("GM1910", "")},
+        devices=[("emulator-5554", "offline", "1"), ("emulator-5556", "device", "2")],
+        serial_responses={
+            "emulator-5556": {
+                ("ip", "addr", "show", "wlan0"): mac_of("link/ether 00:db:0b:fc:4d:61 brd ff:ff:ff:ff:ff:ff")
+            }
+        },
+    )
+
+    entries = discover(adb)
+
+    # 问不动的那台仍然在列表里 —— 它确实在线（adb 认到了），不能凭空消失
+    assert [e.serial for e in entries] == ["emulator-5554", "emulator-5556"]
+    # 完全问不到的设备连机型都读不出来，名字诚实回退到 serial
+    assert entries[0].name == "emulator-5554"
+    assert entries[0].identity is None
+
+
+def test_discover_falls_back_to_the_serial_when_the_model_is_unknown():
+    adb = FakeADB(
+        devices=[("emulator-5554", "device", "1")],
+        serial_responses={
+            "emulator-5554": {("ip", "addr", "show", "wlan0"): mac_of(LD_WLAN0)}
+        },
+    )
+
+    assert discover(adb)[0].name == "emulator-5554"
+
 

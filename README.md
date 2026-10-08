@@ -136,6 +136,30 @@ identify(adb, consoles, "A87V026107005402")   # 真机
 `None` 是正常结果，不是错误 —— 真机、以及指纹读不出来的厂商（目前是 MuMu，
 原因见 `MumuConsole.fingerprint` 的文档）都属于这一类。
 
+### 列出在线设备：`discover()`
+
+按 **wlan0 MAC 去重**，一台物理机器算一台。必须去重是因为 MuMu 会同时占两个 adb 名字
+（自注册的 `emulator-555X` + `ensure_connected()` connect 出来的 `127.0.0.1:<port>`）：
+
+```python
+from androtools.android_sdk.platform_tools import ADB
+from androtools.core import Device, DeviceInfo, LDConsole, MumuConsole, discover
+
+adb = ADB(r"D:\ProgramFiles\LDPlayer9.0.79.2\adb.exe")
+entries = discover(adb, [("雷电", LDConsole(...)), ("MuMu", MumuConsole(...))])
+# adb 上 4 个条目 -> 3 台
+#   PFFM10     bdfbafac          别名=['bdfbafac']
+#   SM-A5560   127.0.0.1:16416   别名=['127.0.0.1:16416', 'emulator-5556']
+#   GM1910     emulator-5554     别名=['emulator-5554']   雷电 index 0
+
+for e in entries:
+    device = Device(DeviceInfo(e.name, e.serial, adb.bin_path))   # serial 用 primary
+```
+
+每台会读一次机型（`ro.product.model`）当展示名，读不到就回退到 serial；认得出厂商和
+实例就填 `identity`，认不出是 `None`（真机、或 MuMu 这类拿不到指纹的）。两个别名的
+机器合并成一条，但 `serials` 里两个名字都留着，你拿哪个来都能用。
+
 ### 抓包
 
 按应用抓 —— 用应用的 user id 做 iptables 标记。

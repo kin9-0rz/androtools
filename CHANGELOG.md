@@ -2,7 +2,20 @@
 
 本文件记录面向使用者的破坏性变更。内部重构（seam 抽取、测试补充）不在此列。
 
+## 未发布
+
+### 新增
+
+- **`discover(adb, consoles)`** —— 列出在线的**物理**设备，一台机器算一台。按 wlan0
+  MAC 去重：MuMu 会同时占两个 adb 名字（自注册的 `emulator-555X` +
+  `ensure_connected()` connect 出来的 `127.0.0.1:<port>`），实测跑一次
+  `MumuPlayer.get_status()` 后 adb 上 4 个条目只对应 3 台机器。返回每台一个
+  `DiscoveredDevice`（展示名 / primary serial / 全部别名 / 认出的厂商实例）。
+  一台离线或问不动的设备不会被丢弃，仍在列表里。
+
 ## 2.1.0
+
+已发布到 PyPI。
 
 修掉 2.0.0 里两个会「给出错误答案」的缺陷，并新增反查 API。
 
@@ -11,11 +24,9 @@
 - **`identify(adb, consoles, serial)`** —— 反查一个 adb serial 是哪个厂商的哪个实例。
   撞号之后最需要问的一句话；它拿实例指纹核对，**不问你手上的厂商工具**，因为实测
   `ldconsole adb --index 1` 在雷电+MuMu 混跑时会返回 MuMu 那台设备且不报错。
-  认不出返回 `None`（真机、指纹读不出来的厂商都属于这一类）。
-
-`None` 是正常结果 —— 目前只有雷电能反查。MuMu 拿不出两侧都读得到的指纹（guest 里唯一的
-MAC 和 android_id 它都不记录，配置里的 `imei` 在 guest 里读不回来），所以对 MuMu 设备
-返回 `None`。MuMu 不需要反查，因为它的 `adb_port` 本身权威且可连。
+  认不出返回 `None`（真机、指纹读不出来的厂商都属于这一类）。目前只有雷电能反查 ——
+  MuMu 拿不出两侧都读得到的指纹，所以对 MuMu 设备返回 `None`。MuMu 不需要反查，
+  因为它的 `adb_port` 本身权威且可连。
 
 ### 新增（interface）
 
