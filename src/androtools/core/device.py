@@ -22,6 +22,14 @@ def bundled_adb_path(console_path: str | None) -> str:
     return "adb"
 
 
+#: 中立层的 5 个模拟字段。厂商的字段比这多、且对不齐（MuMu 有 phone_brand /
+#: phone_model / phone_miit 三个，雷电只有 manufacturer / model 两个），所以这是
+#: **有损映射**：`model` 在 MuMu 上落到 `phone_miit`（guest 的 ro.product.model），
+#: `brand` 落到 `phone_brand`；MuMu 那个营销名 `phone_model`（如 Galaxy A55 5G）
+#: 没有中立槽位，只能走 `set_settings` 逃生舱。
+SIMULATION_KEYS = ("android_id", "imei", "mac", "model", "brand")
+
+
 class Pids(NamedTuple):
     """一台模拟器的两个进程标识。
 
@@ -351,6 +359,55 @@ class EmulatorConsole(CMD, ABC):
         下次启动（见 `set_settings`）。
         """
         raise NotImplementedError(f"{type(self).__name__} 没有实现 set_root()")
+
+    def get_simulation(self, idx: int | str) -> dict[str, str]:
+        """读实例对外自称的 5 个字段：`android_id` / `imei` / `mac` / `model` / `brand`。
+
+        返回的 dict **恒有这 5 个 key**，缺的（厂商压根没设过）补 `""`。
+
+        注意 **MuMu 上「从未设过」与「设成了空」是同一回事**：它的 `simulation` 对
+        任何 key 都回 `{"<key>": ""}`（连不存在的 key 也一样），自己的 `-a` 读全部时
+        又**只列出设过的**（新建实例是干净的空 dict）。厂商没有独立的「不存在」信号，
+        中立层也就无从分开，空串一律读作「这一项没有伪装」。雷电相反，它的配置文件
+        永远有一份具体值（实测新建实例 `phoneAndroidId` / `phoneIMEI` / `macAddress`
+        都已有值），所以那边读到的是「当前会对外报的值」。
+
+        `model` / `brand` 在 MuMu 上**不在 `simulation` 里**，要从 `setting` 读
+        （`phone_miit` / `phone_brand`）；雷电没有 simulation 概念，读的是实例配置
+        文件的 `propertySettings.*`。这些差异都收在 adapter 后面。
+        """
+        raise NotImplementedError(f"{type(self).__name__} 没有实现 get_simulation()")
+
+    def set_simulation(self, idx: int | str, key: str, value: str) -> None:
+        """把实例的一个自称字段设成 `value`。
+
+        `key` 只能是 `SIMULATION_KEYS` 里的 5 个之一，其余抛 ValueError 且**不下发
+        命令**。这条必须自己拦：实测两家对不认识的字段都不报错 —— MuMu
+        `simulation -sk bogus_key` 回 rc 0 的空值，雷电的 `modify` 直接静默忽略未知
+        参数。
+
+        `value` **不做任何格式校验，也不拿空串当「未设置」**：实测雷电把 `--imei 1`
+        （15 位以外的值）、`--mac zz`、`--mac 00:DB:48:FD:62:70`（带冒号）、
+        `--androidid abc`（16 位十六进制以外）全部原样写进配置文件、rc 0、stdout 空。
+        既然厂商不校验，中立层替它校验就要猜它到底认什么 —— 只把它们认为自己认的
+        值原样透传。`"auto"` 同样原样透传（雷电的 `--imei auto` / `--mac auto` /
+        `--androidid auto` 由厂商随机生成），**本库不自己生成随机值**。
+
+        MuMu 上这是「双后端」：3 个 key 走 `simulation` 子命令，`model` / `brand` 走
+        `setting`。
+        """
+        if key not in SIMULATION_KEYS:
+            raise ValueError(
+                f"不认识模拟字段 {key!r}，只能是 {list(SIMULATION_KEYS)} 之一。"
+            )
+        self._write_simulation(idx, key, value)
+
+    def _write_simulation(self, idx: int | str, key: str, value: str) -> None:
+        """厂商方言的写入实现，由 `set_simulation` 调用。
+
+        与 `_write_settings` 拆出来同理：key 合法性这条中立规矩只写一遍。
+        """
+        raise NotImplementedError(f"{type(self).__name__} 没有实现 set_simulation()")
 
     def fingerprint(self, idx: int | str) -> str | None:
         """这个实例在 adb 上可被认出来的唯一值；拿不出就返回 None。

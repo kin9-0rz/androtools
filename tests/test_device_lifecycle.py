@@ -1546,3 +1546,106 @@ def test_the_config_verbs_are_soft_members_of_the_interface():
             getattr(EmulatorConsole, name)(bare, *args)
 
 
+
+# --------------------------------------------------------------------------- #
+# 设备信息模拟 —— 雷电走 modify 的 5 个参数，读的是配置里的 propertySettings
+# --------------------------------------------------------------------------- #
+
+# 实测：新建雷电实例的 propertySettings 就已经有具体值，不是「覆盖表」。
+LD_SIM_CONFIG = """{
+    "propertySettings.phoneAndroidId": "801d508b97ae5d18",
+    "propertySettings.phoneIMEI": "863342026937864",
+    "propertySettings.macAddress": "00DB560F8D18",
+    "propertySettings.phoneModel": "V1824A",
+    "propertySettings.phoneManufacturer": "vivo"
+}"""
+
+
+def test_ld_get_simulation_reads_the_property_settings(tmp_path):
+    """雷电没有读的 CLI —— 只能解析它自己写的配置文件。"""
+    console = ld_settings_console(tmp_path, config=LD_SIM_CONFIG)
+
+    simulation = console.get_simulation("0")
+
+    assert simulation == {
+        "android_id": "801d508b97ae5d18",
+        "imei": "863342026937864",
+        "mac": "00DB560F8D18",
+        "model": "V1824A",
+        "brand": "vivo",
+    }
+
+
+def test_ld_get_simulation_refuses_a_missing_instance(tmp_path):
+    console = ld_settings_console(tmp_path, config=LD_SIM_CONFIG, rows=[])
+
+    with pytest.raises(RuntimeError, match="没有 index 为 0 的实例"):
+        console.get_simulation("0")
+
+
+def test_ld_set_simulation_writes_android_id_without_the_underscore(tmp_path):
+    """中立 `android_id` → `--androidid`（读写两套名字都不一样）。"""
+    console = ld_settings_console(tmp_path, config=LD_SIM_CONFIG)
+
+    console.set_simulation("0", "android_id", "0123456789abcdef")
+
+    assert console.commands == [
+        ["modify", "--index", "0", "--androidid", "0123456789abcdef"]
+    ]
+
+
+def test_ld_set_simulation_maps_brand_to_manufacturer(tmp_path):
+    """雷电**不存在** `--brand` —— 中立的 brand 必须落到 `--manufacturer`。"""
+    console = ld_settings_console(tmp_path, config=LD_SIM_CONFIG)
+
+    console.set_simulation("0", "brand", "OPPO")
+
+    assert console.commands == [["modify", "--index", "0", "--manufacturer", "OPPO"]]
+
+
+def test_ld_set_simulation_sends_auto_through_untouched(tmp_path):
+    """`auto` 由厂商自己随机生成 —— 本库不自己造值。"""
+    console = ld_settings_console(tmp_path, config=LD_SIM_CONFIG)
+
+    console.set_simulation("0", "mac", "auto")
+
+    assert console.commands == [["modify", "--index", "0", "--mac", "auto"]]
+
+
+def test_ld_set_simulation_rejects_a_key_the_vendor_would_silently_ignore(tmp_path):
+    """实测 `modify --bogus 1` 是 rc 0、stdout 空、什么都不改。"""
+    console = ld_settings_console(tmp_path, config=LD_SIM_CONFIG)
+
+    with pytest.raises(ValueError, match="不认识模拟字段"):
+        console.set_simulation("0", "serialno", "123")
+
+    assert console.commands == []
+
+
+def test_ld_set_simulation_refuses_a_missing_instance(tmp_path):
+    """`modify --index 99` 也是 rc 0 —— 编号存在与否得自己问。"""
+    console = ld_settings_console(tmp_path, config=LD_SIM_CONFIG, rows=[])
+
+    with pytest.raises(RuntimeError, match="没有 index 为 0 的实例"):
+        console.set_simulation("0", "mac", "00DB560F8D18")
+
+    assert console.commands == []
+
+
+def test_simulation_verbs_are_soft_members_of_the_interface():
+    """没实现的厂商抛 NotImplementedError，不静默失败、不返回空 dict。"""
+    bare = MumuConsole.__new__(MumuConsole)
+
+    with pytest.raises(NotImplementedError, match="没有实现 get_simulation"):
+        EmulatorConsole.get_simulation(bare, "0")
+
+    with pytest.raises(NotImplementedError, match="没有实现 set_simulation"):
+        EmulatorConsole._write_simulation(bare, "0", "mac", "00DB560F8D18")
+
+
+def test_set_simulation_validates_the_key_before_reaching_any_vendor():
+    """key 校验在中立层，所以未实现的厂商也是 ValueError 而不是 NotImplementedError。"""
+    bare = MumuConsole.__new__(MumuConsole)
+
+    with pytest.raises(ValueError, match="不认识模拟字段"):
+        EmulatorConsole.set_simulation(bare, "0", "serialno", "123")

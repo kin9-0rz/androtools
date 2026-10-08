@@ -214,3 +214,76 @@ def test_set_root_round_trip(mumu):
     assert console.get_settings(idx)["root_permission"] == "false"
     console.set_root(idx, True)
     assert console.get_settings(idx)["root_permission"] == "true"
+
+
+def test_simulation_round_trip_on_a_real_instance(mumu):
+    """#6 的核心真机声明：写下去 `simulation` 立刻生效，回读一致。
+
+    与 `set_settings` 不同 —— `simulation` 是**即时**的，不是「下次启动才生效」。
+    """
+    console, created = mumu
+
+    idx = console.create(f"{PREFIX}-模拟")
+    created.append(idx)
+
+    before = console.get_simulation(idx)
+    assert set(before) == {"android_id", "imei", "mac", "model", "brand"}
+    assert before["mac"] == "", "新建实例没伪装过 mac"
+    assert before["imei"] == ""
+
+    console.set_simulation(idx, "mac", "00DB48FD6270")
+    console.set_simulation(idx, "imei", "865166023949731")
+
+    after = console.get_simulation(idx)
+    assert after["mac"] == "00DB48FD6270"
+    assert after["imei"] == "865166023949731"
+    assert after["android_id"] == "", "没碰过的项还是空"
+    # 机型那两项来自 setting，与 simulation 无关
+    assert after["brand"] == before["brand"]
+
+
+def test_simulation_model_and_brand_go_through_the_setting_backend(mumu):
+    """MuMu 的 `simulation` 只管 3 个 key —— 机型两项走 `setting` 的 phone_miit/phone_brand。"""
+    console, created = mumu
+
+    idx = console.create(f"{PREFIX}-机型")
+    created.append(idx)
+
+    console.set_simulation(idx, "model", "SM-A5560")
+    console.set_simulation(idx, "brand", "OPPO")
+
+    after = console.get_simulation(idx)
+    assert after["model"] == "SM-A5560"
+    assert after["brand"] == "OPPO"
+
+    settings = console.get_settings(idx)
+    assert settings["phone_miit"] == "SM-A5560"
+    assert settings["phone_brand"] == "OPPO"
+
+
+def test_simulation_can_be_restored_to_empty_with_the_vendors_own_word(mumu):
+    """`__null__` 是 MuMu 自己的还原写法，原样透传，中立层不翻译。"""
+    console, created = mumu
+
+    idx = console.create(f"{PREFIX}-还原")
+    created.append(idx)
+
+    console.set_simulation(idx, "mac", "00DB48FD6270")
+    assert console.get_simulation(idx)["mac"] == "00DB48FD6270"
+
+    console.set_simulation(idx, "mac", "__null__")
+    assert console.get_simulation(idx)["mac"] == ""
+
+
+def test_the_vendor_answers_any_simulation_key_with_a_shrug(mumu):
+    """锁厂商行为：不认识的 key 也是 rc 0 加一个空值。
+
+    这就是 `set_simulation` 必须自己校验 key 的理由 —— 不拦的话「写了个不存在的
+    项」在这里是**静默成功**。
+    """
+    console, created = mumu
+
+    idx = console.create(f"{PREFIX}-乱键")
+    created.append(idx)
+
+    assert console._call("simulation", "-v", idx, "-sk", "bogus_key") == {"bogus_key": ""}

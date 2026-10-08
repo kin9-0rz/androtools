@@ -899,3 +899,135 @@ def test_mumu_set_root_writes_true_when_asked():
         "-val",
         "true",
     ]
+
+
+# --------------------------------------------------------------------------- #
+# 设备信息模拟 —— get_simulation / set_simulation（MuMu 是「双后端」）
+# --------------------------------------------------------------------------- #
+
+# 实测 `simulation -v <idx>`（不带 -sk）**只回设过的项**，新建实例回干净的空 dict。
+SIMULATION = {"android_id": "0123456789abcdef", "mac_address": "00DB48FD6270"}
+
+# 机型两项不在 simulation 里，只能从 setting 读。
+PHONE_SETTINGS = SETTINGS | {"phone_miit": "22041211A", "phone_brand": "OPPO"}
+
+
+def sim_console(**overrides):
+    """带 simulation 与 phone_* 的实例。
+
+    具体的写入模式要排在 `"simulation -v 0"` 前面 —— ScriptedMumuConsole 是
+    「先插入的先命中」的子串匹配，顺序反了读的模式会把写也吃掉。
+    """
+    responses = {
+        "simulation -v 0 -sk mac_address -sv": {"mac_address": "00DB48FD6270"},
+        "simulation -v 0 -sk imei -sv": {"imei": "865166023949731"},
+        "simulation -v 0 -sk android_id -sv": {"android_id": "0123456789abcdef"},
+        "simulation -v 0 -sk": {"errcode": 0},
+        "simulation -v 0": SIMULATION,
+        "setting -v 0 -a": PHONE_SETTINGS,
+        "setting -v 0 -k": {"errcode": 0},
+    }
+    responses.update(overrides)
+    return console(**responses)
+
+
+def test_mumu_get_simulation_merges_the_two_backends():
+    """3 个 key 来自 `simulation`，机型两项来自 `setting`。"""
+    mumu = sim_console()
+
+    simulation = mumu.get_simulation("0")
+
+    assert simulation["android_id"] == "0123456789abcdef"
+    assert simulation["mac"] == "00DB48FD6270"  # 方言名是 mac_address
+    assert simulation["model"] == "22041211A"  # 方言名是 phone_miit
+    assert simulation["brand"] == "OPPO"  # 方言名是 phone_brand
+
+
+def test_mumu_get_simulation_fills_the_unset_ones_with_empty():
+    """没设过的项要补空串 —— `simulation` 读全部时根本不列它们。"""
+    mumu = sim_console(**{"simulation -v 0": {}})
+
+    simulation = mumu.get_simulation("0")
+
+    assert set(simulation) == {"android_id", "imei", "mac", "model", "brand"}
+    assert simulation["mac"] == ""
+    assert simulation["imei"] == ""
+    # 机型那两项总是有值：MuMu 的 phone_brand / phone_miit 是**真实默认值**，
+    # 不是「覆盖表」里的一项
+    assert simulation["model"] == "22041211A"
+
+
+def test_mumu_get_simulation_is_three_console_calls_and_no_adb():
+    """锁住形状：一次 info（查编号存在）+ simulation + setting -a。"""
+    mumu = sim_console()
+
+    mumu.get_simulation("0")
+
+    assert mumu.calls == [
+        ["info", "-v", "0"],
+        ["simulation", "-v", "0"],
+        ["setting", "-v", "0", "-a"],
+    ]
+
+
+def test_mumu_get_simulation_refuses_an_index_that_does_not_exist():
+    """`simulation -v 99` 是 rc 0 加一个空值 —— 不自己查就报不出「这台不存在」。"""
+    mumu = sim_console()
+
+    with pytest.raises(RuntimeError, match="Missing param"):
+        mumu.get_simulation("9")
+
+
+def test_mumu_set_simulation_writes_mac_through_the_simulation_subcommand():
+    mumu = sim_console()
+
+    mumu.set_simulation("0", "mac", "00DB48FD6270")
+
+    assert mumu.calls[-1] == [
+        "simulation",
+        "-v",
+        "0",
+        "-sk",
+        "mac_address",
+        "-sv",
+        "00DB48FD6270",
+    ]
+
+
+def test_mumu_set_simulation_sends_model_to_the_setting_subcommand():
+    """`model` 不在 `simulation` 里 —— 它归 `setting` 的 phone_miit。"""
+    mumu = sim_console()
+
+    mumu.set_simulation("0", "model", "SM-A5560")
+
+    assert mumu.calls[-1] == ["setting", "-v", "0", "-k", "phone_miit", "-val", "SM-A5560"]
+
+
+def test_mumu_set_simulation_sends_brand_to_phone_brand():
+    mumu = sim_console()
+
+    mumu.set_simulation("0", "brand", "OPPO")
+
+    assert mumu.calls[-1] == ["setting", "-v", "0", "-k", "phone_brand", "-val", "OPPO"]
+
+
+def test_mumu_set_simulation_rejects_a_key_the_vendor_would_happily_answer():
+    """实测 `simulation -sk bogus_key` 回的是 rc 0 的 `{"bogus_key": ""}`。
+
+    厂商对不认识的 key 毫无意见，所以「key 认不认识」只能中立层自己拦。
+    """
+    mumu = sim_console()
+
+    with pytest.raises(ValueError, match="不认识模拟字段"):
+        mumu.set_simulation("0", "serialno", "123")
+
+    assert mumu.calls == []
+
+
+def test_mumu_set_simulation_refuses_an_index_that_does_not_exist():
+    mumu = sim_console()
+
+    with pytest.raises(RuntimeError, match="Missing param"):
+        mumu.set_simulation("9", "mac", "00DB48FD6270")
+
+    assert not any(call[0] == "simulation" and "-sv" in call for call in mumu.calls)

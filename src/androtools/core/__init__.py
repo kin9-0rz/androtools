@@ -6,6 +6,7 @@ from androtools.core.device import (
     EmulatorInfo,
     EmulatorInstance,
     Pids,
+    SIMULATION_KEYS,
 )
 from androtools.core.identity import DiscoveredDevice, InstanceIdentity, discover, identify
 from androtools.core.ld import LDConsole, LDPlayer
@@ -31,6 +32,7 @@ __all__ = [
     "MumuConsole",
     "MumuPlayer",
     "Pids",
+    "SIMULATION_KEYS",
     "discover",
     "identify",
 ]

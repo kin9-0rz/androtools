@@ -59,6 +59,26 @@ _MODIFY_VALUES: dict[str, str] = {
 _LD_CPUS: tuple[str, ...] = ("1", "2", "3", "4")
 _LD_MEMORY_MB: tuple[int, ...] = (256, 512, 768, 1024, 1536, 2048, 4096, 8192)
 
+#: 中立模拟字段 → 雷电配置里的字段（**读**用，`propertySettings.*`）。
+_SIMULATION_FIELDS = {
+    "android_id": "propertySettings.phoneAndroidId",
+    "imei": "propertySettings.phoneIMEI",
+    "mac": "propertySettings.macAddress",
+    "model": "propertySettings.phoneModel",
+    "brand": "propertySettings.phoneManufacturer",
+}
+
+#: 中立模拟字段 → `modify` 的参数名（**写**用）。注意读写两套名字不一样：
+#: 写 `--androidid`，读 `propertySettings.phoneAndroidId`。中立 `brand` 是唯一
+#: 改了名的那个（雷电叫 `manufacturer`，实测**不存在** `--brand`）。
+_SIMULATION_FLAGS = {
+    "android_id": "androidid",
+    "imei": "imei",
+    "mac": "mac",
+    "model": "model",
+    "brand": "manufacturer",
+}
+
 
 def _flatten(payload: dict[str, Any], prefix: str = "") -> dict[str, Any]:
     """把配置里的嵌套 dict 展平成点号 key。
@@ -409,6 +429,34 @@ class LDConsole(EmulatorConsole):
     def set_root(self, idx: int | str, enabled: bool) -> None:
         """雷电的 `--root` 收 `1|0`（不是 true/false）—— 这是本中立动词唯一的方言。"""
         self.set_settings(idx, root="1" if enabled else "0")
+
+    def get_simulation(self, idx: int | str) -> dict[str, str]:
+        """解析实例配置的 `propertySettings.*` —— 雷电没有读的 CLI。
+
+        与 MuMu 不同，这里**永远**有一份具体值（实测新建实例的 `phoneAndroidId`
+        = `801d508b97ae5d18`、`phoneIMEI` = `863342026937864`、`macAddress` =
+        `00DB560F8D18`），所以读到的是「当前会对外报的值」，没有「没伪装」这个状态。
+
+        成本与 `get_settings` 一样（读同一个文件），所以不退回 `NotImplementedError`。
+        """
+        self._require_instance(idx)
+        settings = self.get_settings(idx)
+        return {
+            key: str(settings.get(field, "")) for key, field in _SIMULATION_FIELDS.items()
+        }
+
+    def _write_simulation(self, idx: int | str, key: str, value: str) -> None:
+        """五个中立字段 → 五个 `modify` 参数。
+
+        `auto` 原样透传，由厂商自己随机生成 —— 实测写下去就**展开成具体值**
+        （`--mac auto` 把 `macAddress` 从 `00DB560F8D18` 换成 `00DBBF76201C`），
+        不是留在配置里的一个字面量；所以别指望写完还能读到 `"auto"`。
+
+        值不做校验：实测 `--imei 1`（15 位以外）、`--mac zz`、`--mac
+        00:DB:48:FD:62:70`（带冒号）、`--androidid abc`（16 位hex以外）全部
+        rc 0、stdout 空、原样落盘 —— 厂商什么都不拦。
+        """
+        self._write_settings(idx, {_SIMULATION_FLAGS[key]: value})
 
     def launch_device(self, idx: int | str):
         return self._run(["launch", "--index", str(idx)])

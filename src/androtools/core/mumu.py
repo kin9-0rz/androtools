@@ -44,6 +44,15 @@ _RESOLUTION_BOUNDS = {
     "dpi": ("resolution_dpi.min", "resolution_dpi.max"),
 }
 
+#: MuMu 的 `simulation` 子命令只认这三个 key（实测 help 原文），而且它自己的
+#: 名字是 `mac_address`。
+_SIMULATION_CLI_KEYS = {"android_id": "android_id", "imei": "imei", "mac": "mac_address"}
+
+#: 机型两项**不在 `simulation` 里**，只能走 `setting`。中立的 `model` 映射到
+#: `phone_miit` —— 实测它等于 guest 的 `ro.product.model`（如 `SM-A5560`），
+#: 那才是「型号」；`phone_model` 是营销名（如 `Galaxy A55 5G`），没有中立槽位。
+_SIMULATION_SETTING_KEYS = {"model": "phone_miit", "brand": "phone_brand"}
+
 
 def _list_values(text: str) -> list[str]:
     """解 `[1,2,...,16](best=4)` 这种列表。
@@ -463,6 +472,54 @@ class MumuConsole(EmulatorConsole):
     def set_root(self, idx: int | str, enabled: bool) -> None:
         """`root_permission` 本身就是 true/false —— 两家差异最小的一个动词。"""
         self.set_settings(idx, root_permission="true" if enabled else "false")
+
+    def get_simulation(self, idx: int | str) -> dict[str, str]:
+        """`simulation` 三个 key + `setting` 两个 key，合并成中立的五项。
+
+        实测 `simulation -v <idx>`（不带 `-sk`）**只回被设置过的项**（新建实例
+        回一个干净的空 dict），所以缺的项自己补空串。
+
+        双后端不是选择而是必需：`simulation` 只认 android_id / mac_address /
+        imei —— 拿 `-sk model` 去问它照样 rc 0，回一个 `{"model": ""}`，看起来
+        像「这项没伪装」而不是「这项不归它管」。
+        """
+        self._require_instance(idx)
+        simulated = {
+            str(k): str(v) for k, v in self._call("simulation", "-v", str(idx)).items()
+        }
+        settings = self.get_settings(idx)
+        result = {
+            key: simulated.get(cli_key, "")
+            for key, cli_key in _SIMULATION_CLI_KEYS.items()
+        }
+        for key, setting_key in _SIMULATION_SETTING_KEYS.items():
+            result[key] = str(settings.get(setting_key, ""))
+        return result
+
+    def _write_simulation(self, idx: int | str, key: str, value: str) -> None:
+        """三个 key 走 `simulation`，两个走 `setting`。
+
+        `-sv __null__` 是 MuMu 自己的还原写法：实测回 `{"mac_address": ""}`，
+        与从未设置过同一个样子（见 `get_simulation` 的说明）。`auto` 不是 MuMu
+        的方言 —— 传进来就会被当成字面值写下去（实测它对 mac/imei 的值**什么都
+        收**，连 `zz` 都 rc 0 存进去）。
+        """
+        if key in _SIMULATION_SETTING_KEYS:
+            self.set_settings(idx, **{_SIMULATION_SETTING_KEYS[key]: value})
+            return
+        self._require_instance(idx)
+        self._call(
+            "simulation", "-v", str(idx), "-sk", _SIMULATION_CLI_KEYS[key], "-sv", value
+        )
+
+    def _require_instance(self, idx: int | str) -> None:
+        """确认这个编号存在，不存在就抛。
+
+        三处都需要它，因为 MuMu 对不存在的编号**不报错**：实测
+        `simulation -v 99 -sk imei` 回 rc 0 的 `{"imei": ""}`。直接下发就当于
+        「静默成功」—— 调用方会以为设上了。
+        """
+        self.instance(idx)
 
     def launch_device(self, idx: int | str):
         return self._run(["control", "-v", str(idx), "launch"])

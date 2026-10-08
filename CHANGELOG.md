@@ -50,6 +50,22 @@
 
   写完之后要立刻看到效果就自己重启实例：与 `set_settings` 一样，本库不替你重启。
 
+- **`EmulatorConsole.get_simulation` / `set_simulation`** —— 读/写实例**对外自称**的
+  五个字段：`android_id` / `imei` / `mac` / `model` / `brand`（`SIMULATION_KEYS`）。
+  `get_simulation` 返回的 dict 恒有这五个 key，缺的补空串；`set_simulation` 的 key
+  不是这五个之一就抛 `ValueError` 且不下发命令 —— 两家对**任何** key 名都不报错
+  （实测 MuMu 的 `simulation -sk bogus_key` 回 rc 0 的 `{"bogus_key": ""}`，
+  雷电的 `--bogus` 直接静默忽略），不拦就是静默成功。
+
+  值一律**原样透传**：不做格式校验，也不拿空串当「未设置」（实测雷电把
+  `--imei 1`、`--mac zz`、`--androidid abc` 全部 rc 0 原样落盘）。`"auto"`
+  （雷电随机生成）与 `"__null__"`（MuMu 还原）是厂商方言，中立层不翻译。
+
+  两个不对称写在 docstring 里而不抹平：机型是**有损映射**（MuMu 有
+  `phone_brand`/`phone_model`/`phone_miit` 三个，雷电只有两个，中立的 `model`
+  落到 MuMu 的 `phone_miit`）；MuMu 上「从未设过」与「设成了空」是同一个信号，
+  雷电则永远有一份具体值。
+
 上面这些新增成员都是**软成员**（带默认实现，抛 `NotImplementedError`），
 所以已有的自定义 Console 不会因此无法实例化；厂商给不出的能力一律抛
 `NotImplementedError`，不静默失败、不返回假值。
