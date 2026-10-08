@@ -5,6 +5,15 @@ from dataclasses import dataclass
 class CmdResult:
     output: str
     error: str
+    exit_code: int | None = None
+    """
+    子进程退出码。**不是**「命令成功了吗」的答案。
+
+    雷电的退出码语义不统一且被截断：删不存在的实例返回 -617，到了命令行是
+    4294966295（unsigned），而 `add` 成功时的退出码本身就是**新实例的 index**。
+    它的报错还写在 stdout 上。所以这个库一律靠回读实际效果判成败，
+    别把 exit_code == 0 当成功。
+    """
 
     def __post_init__(self):
         self.output = self.output.strip()

@@ -11,6 +11,7 @@ import json
 
 import pytest
 
+import androtools.core.mumu as mumu_module
 from helpers import make_emulator_info
 from androtools.cmd.result import CmdResult
 from androtools.core.constants import KeyEvent
@@ -68,7 +69,10 @@ class ScriptedMumuConsole(MumuConsole):
         key = " ".join(cmd)
         for pattern, payload in self.responses.items():
             if pattern in key:
-                text = payload if isinstance(payload, str) else json.dumps(payload)
+                # 可调用值：用来模拟「命令执行后状态真的变了」
+                # （例如 shutdown 之后 info 就该报 STOPPED）。
+                value = payload() if callable(payload) else payload
+                text = value if isinstance(value, str) else json.dumps(value)
                 return CmdResult(text, "")
         return CmdResult(json.dumps({"errcode": -1, "errmsg": f"unexpected {key}"}), "")
 
@@ -436,3 +440,173 @@ def test_emulator_instance_equality_survives_a_changed_adb_port():
 
     assert before == after
     assert len({before, after}) == 1
+
+
+# --------------------------------------------------------------------------- #
+# create / clone / delete / rename —— MuMu：返回体按新 index 分键
+# --------------------------------------------------------------------------- #
+
+# 实测：MuMuManager.exe create --number 1 —— 返回体按新编号分键，顶层没有 errcode
+CREATED_AT_2 = {"2": {"errcode": 0, "errmsg": ""}}
+
+
+def test_mumu_create_returns_the_index_the_cli_reported():
+    """新编号直接在返回值里，不用靠前后 diff。"""
+    mumu = console(**{"create --number 1": CREATED_AT_2})
+
+    assert mumu.create() == "2"
+    assert mumu.calls == [["info", "-v", "all"], ["create", "--number", "1"]]
+
+
+def test_mumu_create_renames_when_a_name_is_asked_for():
+    """MuMu 的 create 不接受名字，所以「建完再改名」是两步。"""
+    mumu = console(
+        **{
+            "create --number 1": CREATED_AT_2,
+            "rename -v 2 --name": {"errcode": 0},
+        }
+    )
+
+    assert mumu.create("新实例") == "2"
+    assert mumu.calls[-1] == ["rename", "-v", "2", "--name", "新实例"]
+
+
+def test_mumu_create_surfaces_the_error_hidden_in_the_response():
+    """create 的错误藏在那台新实例的值里，顶层没有 errcode —— 必须逐键看。"""
+    mumu = console(**{"create --number 1": {"2": {"errcode": -1, "errmsg": "disk full"}}})
+
+    with pytest.raises(RuntimeError, match="disk full"):
+        mumu.create()
+
+
+def test_mumu_create_falls_back_to_diffing_the_instance_list():
+    """返回值里没有可用的编号时，用前后 diff 兜底。"""
+    state = {"created": False}
+
+    def all_info():
+        return {
+            "0": STOPPED,
+            "1": RUNNING,
+            **({"7": STOPPED} if state["created"] else {}),
+        }
+
+    def create():
+        state["created"] = True
+        return {"oops": "not an index"}
+
+    mumu = console(**{"info -v all": all_info, "create --number 1": create})
+
+    assert mumu.create() == "7"
+
+
+def test_mumu_create_reports_when_no_instance_showed_up():
+    """两条路都失败就报错，**不能**返回一个猜的 index。"""
+    mumu = console(**{"create --number 1": {"oops": "not an index"}})
+
+    with pytest.raises(RuntimeError, match="没有出现新实例"):
+        mumu.create()
+
+
+def test_mumu_clone_returns_the_new_index():
+    mumu = console(**{"clone -v 0 --number 1": {"2": {"errcode": 0}}})
+
+    assert mumu.clone("0") == "2"
+    assert mumu.calls[-1] == ["clone", "-v", "0", "--number", "1"]
+
+
+def test_mumu_delete_of_a_stopped_instance_goes_straight_through():
+    """机器已经停了就不多此一举去 shutdown。"""
+    mumu = console(**{"info -v all": {"1": RUNNING}, "delete -v 0": {"errcode": 0}})
+
+    mumu.delete("0")
+
+    assert [c[0] for c in mumu.calls] == ["info", "delete", "info"]
+
+
+def test_mumu_delete_shuts_a_running_instance_down_first():
+    """实测：对运行中的实例直接 delete 会被拒（errcode -103
+    `player is running, command not allowed`），所以要先把机器停干净。
+
+    这也是「编排在 adapter 里」的价值：调用方只要说 delete。
+    """
+    state = {"running": True, "deleted": False}
+
+    def info():
+        return dict(RUNNING if state["running"] else STOPPED)
+
+    def shutdown():
+        state["running"] = False
+        return {"errcode": 0}
+
+    def delete():
+        state["deleted"] = True
+        return {"errcode": 0}
+
+    def all_info():
+        return {} if state["deleted"] else {"1": info()}
+
+    mumu = console(
+        **{
+            "info -v all": all_info,
+            "info -v 1": info,
+            "control -v 1 shutdown": shutdown,
+            "delete -v 1": delete,
+        }
+    )
+
+    mumu.delete("1")
+
+    assert [c[0] for c in mumu.calls] == ["info", "control", "info", "delete", "info"]
+    assert state["running"] is False
+    assert state["deleted"] is True
+
+
+def test_mumu_delete_does_not_invent_its_own_timeout(monkeypatch):
+    """停不下来时不自己造错误 —— 让厂商的 -103 报出来，那条信息更接近事实。"""
+    monkeypatch.setattr(mumu_module, "_STOP_WAIT_SECONDS", 0.0)
+    mumu = console(
+        **{
+            "delete -v 1": {
+                "errcode": -103,
+                "errmsg": "player is running, command not allowed",
+            }
+        }
+    )
+
+    with pytest.raises(RuntimeError, match="player is running"):
+        mumu.delete("1")
+
+
+def test_mumu_delete_surfaces_the_vendors_error():
+    """实测：删不存在的索引给 errcode -201 `player not running`。"""
+    mumu = console(**{"delete -v 9": {"errcode": -201, "errmsg": "player not running"}})
+
+    with pytest.raises(RuntimeError, match="player not running"):
+        mumu.delete("9")
+
+
+def test_mumu_delete_says_so_when_the_instance_survives(monkeypatch):
+    """命令说成功、实例其实还在 —— 不能就这么算了。"""
+    monkeypatch.setattr(mumu_module, "_STOP_WAIT_SECONDS", 0.0)
+    mumu = console(**{"delete -v 1": {"errcode": 0}})
+
+    with pytest.raises(RuntimeError, match="仍在 info -v all 里"):
+        mumu.delete("1")
+
+
+def test_mumu_rename_passes_the_name_after_the_flag():
+    mumu = console(**{"rename -v 0 --name": {"errcode": 0}})
+
+    mumu.rename("0", "新名字")
+
+    assert mumu.calls == [["rename", "-v", "0", "--name", "新名字"]]
+
+
+def test_mumu_rename_surfaces_the_param_error():
+    """实测：空名字给 -22，不给 `--name` 给 -21，文案都带 errcode 透出。"""
+    mumu = console(
+        **{"rename -v 0 --name": {"errcode": -22, "errmsg": "Missing param <name> value error !!!"}}
+    )
+
+    with pytest.raises(RuntimeError, match="Missing param <name> value error"):
+        mumu.rename("0", "")

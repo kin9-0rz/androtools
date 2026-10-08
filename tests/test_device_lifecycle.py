@@ -294,15 +294,78 @@ class FakeLDConsole(LDConsole):
         return "\n".join(self.rows)
 
 
-def ld_row(index, pid, vm_pid, width=540, height=960, dpi=240):
+def ld_row(index, pid, vm_pid, width=540, height=960, dpi=240, name="雷电模拟器", state=1):
     """ldconsole list2 的真实列序（10 列），对照 D:\\ProgramFiles\\LDPlayer9.0.79.2 实测：
 
         0,雷电模拟器,0,0,0,-1,-1,540,960,240
          0    1    2 3 4  5  6  7  8  9
 
     5 = 进程 PID，6 = VBox 进程 PID，7/8 = 分辨率宽高，9 = dpi。
+
+    第 4 列（运行状态）和名字默认是实测值。测试故意让它们可覆盖：多个已有的
+    用例依赖「第 4 列说运行中，但两个 PID 说没跑」这组数据。
     """
-    return f"{index},雷电模拟器,0,0,1,{pid},{vm_pid},{width},{height},{dpi}"
+    return f"{index},{name},0,0,{state},{pid},{vm_pid},{width},{height},{dpi}"
+
+
+class ScriptedLDConsole(LDConsole):
+    """会真的增删改 rows 的 fake，用来测「发命令 + 回读 list2 校验效果」。
+
+    真实 ldconsole 的退出码语义不统一（`add` 成功时就是新 index，`remove` 失败
+    时是 -617），错误还打在 stdout 上（`player don't exist!`）。所以 LDConsole
+    不解析任何厂商文案，只回读效果 —— 这个 fake 就是为那条路径准备的：命令
+    照做，或者在 `refusals` 里声明「这条命令会静默什么都不做」。
+    """
+
+    def __init__(self, rows, refusals=()):
+        self.rows = list(rows)
+        self.bin_path = "ldconsole.exe"
+        self.calls: list[list[str]] = []
+        self.refusals = set(refusals)
+
+    def list_devices(self) -> str:
+        return "\n".join(self.rows)
+
+    def _run(self, cmd, shell=False, encoding=None, timeout=None):  # type: ignore[override]
+        self.calls.append(list(cmd))
+        if cmd[0] in self.refusals:
+            return CmdResult("", "")
+        if cmd[0] == "add":
+            idx = self._free_index()
+            name = cmd[cmd.index("--name") + 1] if "--name" in cmd else self._default_name(idx)
+            self.rows.append(ld_row(idx, -1, -1, name=name))
+        elif cmd[0] == "copy":
+            source = cmd[cmd.index("--from") + 1]
+            row = next(r for r in self.rows if r.split(",")[0] == source)
+            idx = self._free_index()
+            name = cmd[cmd.index("--name") + 1] if "--name" in cmd else f"{row.split(',')[1]}-{idx}"
+            self.rows.append(ld_row(idx, -1, -1, name=name))
+        elif cmd[0] == "remove":
+            target = cmd[cmd.index("--index") + 1]
+            self.rows = [r for r in self.rows if r.split(",")[0] != target]
+        elif cmd[0] == "rename":
+            self._set_name(cmd[cmd.index("--index") + 1], cmd[cmd.index("--title") + 1])
+        return CmdResult("", "")
+
+    def _default_name(self, idx: int) -> str:
+        """实测：index 0 叫「雷电模拟器」，≥1 叫「雷电模拟器-<index>」。"""
+        return "雷电模拟器" if idx == 0 else f"雷电模拟器-{idx}"
+
+    def _free_index(self) -> int:
+        used = {int(r.split(",")[0]) for r in self.rows}
+        idx = 0
+        while idx in used:
+            idx += 1
+        return idx
+
+    def _set_name(self, index: str, name: str) -> None:
+        out = []
+        for row in self.rows:
+            cells = row.split(",")
+            if cells[0] == index:
+                cells[1] = name
+            out.append(",".join(cells))
+        self.rows = out
 
 
 def test_ld_probe_state_requires_both_pids():
@@ -419,6 +482,143 @@ def test_list_instances_is_a_soft_member_of_the_interface():
     """
     with pytest.raises(NotImplementedError, match="没有实现 list_instances"):
         EmulatorConsole.list_instances(MumuConsole.__new__(MumuConsole))
+
+
+def test_the_lifecycle_verbs_are_soft_members_of_the_interface():
+    """四个增删改动词也是软成员：厂商没实现就报出来，**不能**静默成功。
+
+    静默成功比报错危险得多 —— 调用方会以为实例建好了、删掉了，然后去 launch
+    一个根本不存在的东西。
+    """
+    bare = MumuConsole.__new__(MumuConsole)
+
+    for call in (
+        lambda: EmulatorConsole.create(bare),
+        lambda: EmulatorConsole.clone(bare, "0"),
+        lambda: EmulatorConsole.delete(bare, "0"),
+        lambda: EmulatorConsole.rename(bare, "0", "新名字"),
+    ):
+        with pytest.raises(NotImplementedError):
+            call()
+
+
+# --------------------------------------------------------------------------- #
+# create / clone / delete / rename —— 雷电：发命令 + 回读 list2 校验效果
+# --------------------------------------------------------------------------- #
+
+
+def test_ld_create_returns_the_index_that_showed_up():
+    console = ScriptedLDConsole([ld_row(0, 1111, 2222)])
+
+    new = console.create()
+
+    assert new == "1"
+    assert [i.index for i in console.list_instances()] == ["0", "1"]
+    assert console.calls[-1] == ["add"]
+
+
+def test_ld_create_passes_the_name_through():
+    console = ScriptedLDConsole([ld_row(0, 1111, 2222)])
+
+    console.create("新实例")
+
+    assert console.calls[-1] == ["add", "--name", "新实例"]
+    assert [i.name for i in console.list_instances()][-1] == "新实例"
+
+
+def test_ld_create_reports_when_no_instance_showed_up():
+    """命令「成功」但 list2 里没多出东西 —— 不能返回一个假的 index。
+
+    真实场景：ldconsole 的 `add` 就是有「退出码 0 但什么都没建」这类样子
+    （它成功时的退出码反而是新 index，语义根本不统一）。
+    """
+    console = ScriptedLDConsole([ld_row(0, 1111, 2222)], refusals={"add"})
+
+    with pytest.raises(RuntimeError, match="没有出现新实例"):
+        console.create()
+
+
+def test_ld_clone_copies_from_the_source_index():
+    console = ScriptedLDConsole([ld_row(0, 1111, 2222)])
+
+    new = console.clone("0", "副本")
+
+    assert new == "1"
+    assert console.calls[-1] == ["copy", "--name", "副本", "--from", "0"]
+
+
+def test_ld_clone_of_a_missing_source_never_reaches_the_console():
+    """实测：源不存在时 `copy` 退出码 -616、而且把**整篇 help** 打到 stdout。
+
+    先读 list2 判存在，就不会让那一大篇 help 混进错误信息里。
+    """
+    console = ScriptedLDConsole([ld_row(0, 1111, 2222)])
+
+    with pytest.raises(RuntimeError, match="没有 index 为 9 的实例"):
+        console.clone("9")
+
+    assert console.calls == []
+
+
+def test_ld_delete_verifies_the_instance_is_gone():
+    console = ScriptedLDConsole([ld_row(0, 1111, 2222), ld_row(1, -1, -1)])
+
+    console.delete("1")
+
+    assert [i.index for i in console.list_instances()] == ["0"]
+    assert console.calls[-1] == ["remove", "--index", "1"]
+
+
+def test_ld_delete_of_a_missing_index_never_reaches_the_console():
+    """实测：坏 index 时 `remove` 退出码 -617、stdout 是 `player don't exist!`。"""
+    console = ScriptedLDConsole([ld_row(0, 1111, 2222)])
+
+    with pytest.raises(RuntimeError, match="没有 index 为 9 的实例"):
+        console.delete("9")
+
+    assert console.calls == []
+
+
+def test_ld_delete_says_so_when_the_instance_survives():
+    """删不掉就报出来，而不是假装成功。
+
+    雷电删除运行中的实例我们没实测过（唯一在跑的是用户的实例），所以不认识
+    的编排不写 —— 只把事实报清楚，并给出可操作的建议。
+    """
+    console = ScriptedLDConsole([ld_row(0, 1111, 2222)], refusals={"remove"})
+
+    with pytest.raises(RuntimeError, match="请先 close"):
+        console.delete("0")
+
+
+def test_ld_rename_uses_title_and_verifies_the_change():
+    """`rename` 的 `--title` 才是新名字；`--index` 是选择器，不是名字。
+
+    help 原文是 `rename [--name <mnq_name | mnq_idx>] --title <mnq_title>`，
+    那里的 `--name` 是选择器的别名，容易看错。
+    """
+    console = ScriptedLDConsole([ld_row(0, 1111, 2222)])
+
+    console.rename("0", "新名字")
+
+    assert console.calls[-1] == ["rename", "--index", "0", "--title", "新名字"]
+    assert console.list_instances()[0].name == "新名字"
+
+
+def test_ld_rename_to_the_same_name_is_not_an_error():
+    """list2 看不出变化，但「本来就叫这个名」不是失败，发命令只会把 no-op 报成错。"""
+    console = ScriptedLDConsole([ld_row(0, 1111, 2222)])
+
+    console.rename("0", "雷电模拟器")
+
+    assert console.calls == []
+
+
+def test_ld_rename_reports_when_the_title_did_not_change():
+    console = ScriptedLDConsole([ld_row(0, 1111, 2222)], refusals={"rename"})
+
+    with pytest.raises(RuntimeError, match="名字还是"):
+        console.rename("0", "新名字")
 
 
 def test_device_console_rejects_incomplete_adapter():

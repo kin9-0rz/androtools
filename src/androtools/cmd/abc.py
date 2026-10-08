@@ -21,6 +21,12 @@ class CMD:
     def __init__(self, path: str) -> None:
         assert isinstance(path, str)
         self.bin_path = path if os.path.exists(path) else shutil.which(path)
+        #: 这个工具的输出编码。None 表示跟随本机 locale（`subprocess` 的默认行为）。
+        #: 但厂商的输出编码往往与本机 locale 无关：实测 MuMuManager 6.8.2.0 发
+        #: UTF-8，而 ldconsole 9.0.79.2 发 GBK，两者在中文 Windows 上都不等于
+        #: `locale.getpreferredencoding()`（cp936）—— 后者能把 MuMu 的中文设备名
+        #: 解成乱码。所以由各 adapter 显式声明自己的编码。
+        self.encoding: str | None = None
         self._args: list[str] = []
         self._current_cmd_line = ""
 
@@ -72,15 +78,15 @@ class CMD:
             r = subprocess.run(
                 cmd_line,
                 shell=shell,  # 例如使用通配符、管道或重定向时，须使用shell
-                encoding=encoding,
+                encoding=encoding if encoding is not None else self.encoding,
                 errors="ignore",
                 capture_output=True,
                 text=True,
                 timeout=timeout,
             )
-            cr = CmdResult(r.stdout, r.stderr)
+            cr = CmdResult(r.stdout, r.stderr, r.returncode)
             logger.debug(f"Result:\n{cr}")
-            return CmdResult(r.stdout, r.stderr)
+            return cr
         except Exception as e:
             raise e
 

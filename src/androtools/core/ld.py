@@ -19,11 +19,20 @@ from androtools.core.identity import IDENTITY_CMD, normalize_mac, parse_mac
 from androtools.core.session import ConsoleSession
 
 
+def _numeric_index(idx: str) -> int:
+    """list2 的 index 是数字字符串。万一不是，排到最后而不是抛异常。"""
+    return int(idx) if idx.isdigit() else 1 << 30
+
+
 class LDConsole(EmulatorConsole):
     """使用 ldconsole.exe 对模拟器进行管理"""
 
     def __init__(self, path=shutil.which("ldconsole.exe")):
         super().__init__(path)
+        # 实测（9.0.79.2）：ldconsole 的 stdout 是 GBK（错误文案写死在二进制里），
+        # 与本机 locale 无关。显式声明，免得在非中文 Windows 上把 `player don't
+        # exist!` 之类的错误文案解成乱码。
+        self.encoding = "gbk"
 
     def list_devices(self) -> str:
         """列出所有模拟器信息
@@ -102,6 +111,101 @@ class LDConsole(EmulatorConsole):
         if not self.get_pids(idx).is_running():
             return DeviceStatus.STOP
         return DeviceStatus.BOOT
+
+    def create(self, name: str | None = None) -> str:
+        """新建一台实例，返回它的 index。
+
+        雷电这边**不能靠退出码判成败**：`add` 成功时退出码就是新 index，
+        而 `remove` / `rename` 失败时是负数（还按 unsigned 截断），报错也打在
+        stdout 上（`player don't exist!`）、不在 stderr。所以发完命令**回读
+        list2**，用「多出来的那个 index」当答案，一个厂商文案都不解析。
+
+        `name` 为 None 时不带 `--name`，让雷电自己起默认名（实测 index 2 的
+        默认名是 `雷电模拟器-2`）。**新 index 是实测出来的，不是猜的**。
+        """
+        before = set(self.instances())
+        cmd = ["add"] if name is None else ["add", "--name", name]
+        self._run(cmd)
+        return self._require_new_instance(cmd, before)
+
+    def _require_new_instance(self, cmd: list[str], before: set[str]) -> str:
+        """从 list2 里找出发命令之后多出来的那台，找不到就报错。
+
+        拿不到编号时**报错而不是返回一个猜的 index** —— 调用方拿着那个值去
+        launch 就会启动错的机器，比直接失败危险得多。
+        """
+        new = [idx for idx in self.instances() if idx not in before]
+        if not new:
+            raise RuntimeError(
+                f"ldconsole {' '.join(cmd)} 之后 list2 里没有出现新实例"
+                f"（现有 {sorted(before, key=_numeric_index)}），拿不到新实例的编号。"
+            )
+        return min(new, key=_numeric_index)
+
+    def clone(self, idx: int | str, name: str | None = None) -> str:
+        """基于 `idx` 复制一台，返回新 index。
+
+        先确认源存在再发命令：实测源不存在时 `copy` 的退出码是 -616（unsigned
+        显示 4294966296），而且把**整篇 help** 打到 stdout —— 多发一条命令就等于
+        把那一大篇 help 混进错误信息里。
+        """
+        self._require_instance(idx)
+        before = set(self.instances())
+        cmd = ["copy"] if name is None else ["copy", "--name", name]
+        cmd += ["--from", str(idx)]
+        self._run(cmd)
+        return self._require_new_instance(cmd, before)
+
+    def delete(self, idx: int | str) -> None:
+        """删除一台实例，删完回读 list2 确认它真的没了。
+
+        **不替调用方停机**：雷电对「删除运行中的实例」究竟是什么行为，我们
+        没实测过（唯一在跑的是用户的实例，不能碰），所以不写没验证过的编排。
+        实例还在就把话说清楚，让调用方自己决定先 close() 还是先重启模拟器。
+        """
+        self._require_instance(idx)
+        self._run(["remove", "--index", str(idx)])
+        if str(idx) in self.instances():
+            raise RuntimeError(
+                f"ldconsole remove --index {idx} 之后实例仍然在 list2 里。"
+                "雷电可能不允许删除运行中的实例，请先 close() 再删。"
+            )
+
+    def rename(self, idx: int | str, name: str) -> None:
+        """改实例标题，之后回读 list2 确认名字真的变了。
+
+        注意 `--title` 才是新名字：help 原文是
+        `rename [--name <mnq_name | mnq_idx>] --title <mnq_title>`，那里的
+        `--name` 是**选择器**的别名，容易看错。
+
+        目标名与当前名相同时直接返回：list2 看不出变化，但「本来就叫这个名」
+        不是失败，发命令只会把一次正常的 no-op 报成错。
+        """
+        self._require_instance(idx)
+        if self._name_of(idx) == name:
+            return
+        self._run(["rename", "--index", str(idx), "--title", name])
+        current = self._name_of(idx)
+        if current != name:
+            raise RuntimeError(
+                f"ldconsole rename --index {idx} --title {name} 之后名字还是"
+                f" {current!r}。"
+            )
+
+    def _require_instance(self, idx: int | str) -> None:
+        """先在 list2 里确认这个 index 存在，避免把厂商的 help 全文当错误信息。"""
+        if str(idx) not in self.instances():
+            raise RuntimeError(
+                f"没有 index 为 {idx} 的实例（现有 "
+                f"{sorted(self.instances(), key=_numeric_index)}）。"
+            )
+
+    def _name_of(self, idx: int | str) -> str | None:
+        """list2 的第 1 列。找不到 index 返回 None。"""
+        for parts in self._rows():
+            if parts[0] == str(idx):
+                return parts[1]
+        return None
 
     def launch_device(self, idx: int | str):
         return self._run(["launch", "--index", str(idx)])

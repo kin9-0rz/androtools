@@ -226,6 +226,33 @@ class EmulatorConsole(CMD, ABC):
         """
         raise NotImplementedError(f"{type(self).__name__} 没有实现 list_instances()")
 
+    def create(self, name: str | None = None) -> str:
+        """新建一台实例，返回它的 index。
+
+        拿不到新 index 时必须抛异常，**不能**返回一个猜的值 —— 调用方拿着它
+        去 launch 就会启动错的机器。名字为 None 时用厂商的默认名。
+        """
+        raise NotImplementedError(f"{type(self).__name__} 没有实现 create()")
+
+    def clone(self, idx: int | str, name: str | None = None) -> str:
+        """基于现有实例复制一台，返回新 index 的字符串。
+
+        源实例不存在时要抛异常，别把「复制了别的东西」当成成功。
+        """
+        raise NotImplementedError(f"{type(self).__name__} 没有实现 clone()")
+
+    def delete(self, idx: int | str) -> None:
+        """删除一台实例。
+
+        厂商要求先停机时由 adapter 自己编排（MuMu 就是这种）——调用方不必
+        知道各家规矩。删完必须能确认它真的没了，做不到就报错。
+        """
+        raise NotImplementedError(f"{type(self).__name__} 没有实现 delete()")
+
+    def rename(self, idx: int | str, name: str) -> None:
+        """改实例名。名字**不必唯一**（MuMu 允许重名），所以别拿它当标识。"""
+        raise NotImplementedError(f"{type(self).__name__} 没有实现 rename()")
+
     def fingerprint(self, idx: int | str) -> str | None:
         """这个实例在 adb 上可被认出来的唯一值；拿不出就返回 None。
 

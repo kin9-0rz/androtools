@@ -46,6 +46,13 @@ def _status_of(raw: dict[str, Any]) -> DeviceStatus:
     return DeviceStatus.BOOT if raw.get("is_process_started") else DeviceStatus.STOP
 
 
+#: 等实例停下来的轮询间隔与上限（秒）。delete 对运行中的实例会被拒
+#: （errcode -103），所以要先停干净。停不下来时不自己造错误 —— 接着发的
+#: delete 会以厂商的 -103 失败，那条信息更接近事实。
+_STOP_POLL_SECONDS = 1.0
+_STOP_WAIT_SECONDS = 15.0
+
+
 class MumuConsole(EmulatorConsole):
     """MuMuManager.exe —— MuMu 的控制台。
 
@@ -73,6 +80,10 @@ class MumuConsole(EmulatorConsole):
 
     def __init__(self, path=shutil.which("MuMuManager.exe")):
         super().__init__(path)
+        # 实测（6.8.2.0）：MuMuManager 的 stdout 是 UTF-8，中文设备名按 UTF-8 输出
+        # （`info -v all` 的 name 字段原始字节是 `\xe6\xb5\x8b\xe8\xaf\x95` = 测试）。
+        # 跟随本机 locale 会解成乱码，见 CMD.encoding。
+        self.encoding = "utf-8"
 
     def _call(self, *args: str) -> Any:
         """跑一个子命令并把 JSON 结果解出来。失败时抛异常而不是静默返回。"""
@@ -168,6 +179,126 @@ class MumuConsole(EmulatorConsole):
     def probe_state(self, idx: int | str) -> DeviceStatus:
         """MuMu 直接给出进程状态，不需要像雷电那样推断。"""
         return _status_of(self.instance(idx))
+
+    def create(self, name: str | None = None) -> str:
+        """新建一台实例，返回它的 index。
+
+        实测（MuMu Player 6.8.2.0，本机已装 12/15 双引擎）：
+
+        - `create --number 1` 的返回体是**按新 index 分键**的：
+          `{"2": {"errcode": 0, "errmsg": ""}}` —— 顶层**没有** errcode，
+          所以新编号直接就在返回值里，不必靠前后 diff。
+        - 新 index 是**最小空闲号**，不是「最大号 +1」。（当时已有 0/1 与一个
+          残留的 99，给出的是 2。）
+        - 不传 `--version` 时是 auto，实测本机双引擎混装下落到了 **15.0**；
+          这里不选版本，让厂商按自己的默认走（要特定版本就改用厂商自己的 CLI）。
+        - `--vmindex` 实测**确实有效**（`create --vmindex 99` 真的建在 99），
+          但这里**故意不用**：让厂商自己分配编号比我们指定更安全。
+
+        MuMu 的 `create` 不接受名字，所以给了 `name` 就是「建完再改名」两步。
+        实测名字**不必唯一**（把一台改成与另一台同名照样 errcode 0），所以
+        名字不能当标识，index 才是。
+        """
+        cmd = ["create", "--number", "1"]
+        before = set(self.instances())
+        response = self._call(*cmd)
+        idx = self._new_index(response, before, cmd)
+        if name is not None:
+            self.rename(idx, name)
+        return idx
+
+    def _new_index(
+        self, response: dict[str, Any], before: set[str], cmd: list[str]
+    ) -> str:
+        """新实例的编号：先从返回值里取，取不到就前后 diff `info -v all`。
+
+        两条路都拿不到就**报错**，绝不返回一个猜的 index —— 调用方拿着它去
+        launch 会启动错的机器，比直接失败危险得多。返回值里非编号的键
+        （如 errcode）用 isdigit 过滤掉。
+        """
+        # create / clone 的顶层没有 errcode（那是「整个命令没跑起来」那一档，
+        # 已经由 _call 拦下了），但每台新实例的值里还有一个 —— 实测错误就
+        # 藏在那里（{"2": {"errcode": -1, "errmsg": "..."}}），必须逐键看。
+        errors = [
+            raw.get("errmsg") or raw
+            for raw in response.values()
+            if isinstance(raw, dict) and raw.get("errcode")
+        ]
+        if errors:
+            raise RuntimeError(f"MuMuManager {' '.join(cmd)} 失败：{errors[0]}")
+
+        created = [k for k in map(str, response) if k.isdigit() and k not in before]
+        if not created:
+            created = [i for i in self.instances() if i not in before]
+        if not created:
+            raise RuntimeError(
+                f"MuMuManager {' '.join(cmd)} 之后没有出现新实例"
+                f"（现有 {sorted(before, key=_index_sort_key)}），拿不到新实例的编号。"
+            )
+        return min(created, key=_index_sort_key)
+
+    def clone(self, idx: int | str, name: str | None = None) -> str:
+        """基于 `idx` 复制一台，返回新 index。
+
+        实测（源 `MuMu安卓设备-2`，副本建在 index 3）：返回体与 create 同形
+        `{"3": {"errcode": 0, "errmsg": ""}}`，新 index 也是最小空闲号，
+        耗时约 1.5s（影子盘，不是整份拷贝）。不给名字时副本的默认名是
+        `源名 + "-1"`，例如 `MuMu安卓设备-2-1`。
+        """
+        cmd = ["clone", "-v", str(idx), "--number", "1"]
+        before = set(self.instances())
+        response = self._call(*cmd)
+        new = self._new_index(response, before, cmd)
+        if name is not None:
+            self.rename(new, name)
+        return new
+
+    def delete(self, idx: int | str) -> None:
+        """删除一台实例。**运行中的先停机** —— 这一步由 adapter 编排。
+
+        实测：MuMu 拒绝对运行中的实例执行 delete，
+        `{"errcode": -103, "errmsg": "player is running, command not allowed"}`
+        （进程退出码 4294967193，即 -103 的 unsigned）。所以这里先 `shutdown`、
+        等它真的到 STOP 再删 —— 调用方不必知道这条规矩。
+
+        `delete` 本身是**阻塞**的：实测成功路径耗时约 4.8s，返回时实例目录已
+        消失，所以**不需要** `--no_wait`（加了反而要自己做等待）。删完回读
+        确认，不留「命令说成功、其实还在」的可能。
+        """
+        self._shutdown_and_wait(idx)
+        self._call("delete", "-v", str(idx))
+        if str(idx) in self.instances():
+            raise RuntimeError(f"MuMuManager delete -v {idx} 之后实例仍在 info -v all 里。")
+
+    def _shutdown_and_wait(self, idx: int | str) -> None:
+        """停机并等它到 STOP。实例已经不存在时直接返回。"""
+        try:
+            if _status_of(self.instance(idx)) is DeviceStatus.STOP:
+                return
+        except RuntimeError:
+            return
+
+        self.quit_device(idx)
+        deadline = time.monotonic() + _STOP_WAIT_SECONDS
+        while time.monotonic() < deadline:
+            time.sleep(_STOP_POLL_SECONDS)
+            try:
+                if _status_of(self.instance(idx)) is DeviceStatus.STOP:
+                    return
+            except RuntimeError:
+                return
+
+    def rename(self, idx: int | str, name: str) -> None:
+        """改实例名。**运行中也能改**（实测对运行中的实例改同名，errcode 0）。
+
+        实测参数校验（都会带 errcode 透出）：空名字 → -22
+        `Missing param <name> value error !!!`；干脆不给 `--name` → -21
+        `Missing param <name> error !!!`。
+
+        名字**不必唯一**：实测把 index 3 改成与 index 0 同名的 `A15` 照样成功，
+        于是两台重名。名字只是给人看的，index 才是标识。
+        """
+        self._call("rename", "-v", str(idx), "--name", name)
 
     def launch_device(self, idx: int | str):
         return self._run(["control", "-v", str(idx), "launch"])
