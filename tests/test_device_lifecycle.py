@@ -1223,3 +1223,166 @@ def test_discover_falls_back_to_the_serial_when_the_model_is_unknown():
     assert discover(adb)[0].name == "emulator-5554"
 
 
+# --------------------------------------------------------------------------- #
+# get_settings / set_settings —— 读配置、写 modify
+# --------------------------------------------------------------------------- #
+
+# 实测：雷电实例的 leidian{n}.config，只留我们关心的字段。
+# 注意顶层 key **本身就是点号名字**，而 resolution 的值是嵌套 dict。
+LD_CONFIG = """{
+    "propertySettings.phoneIMEI": "010306024934555",
+    "propertySettings.phoneModel": "MI 9",
+    "propertySettings.macAddress": "00DB0F665BBE",
+    "advancedSettings.cpuCount": 3,
+    "advancedSettings.resolution": {"width": 900, "height": 1600},
+    "advancedSettings.resolutionDpi": 400,
+    "basicSettings.rootMode": true,
+    "basicSettings.autoRotate": false
+}"""
+
+
+def ld_settings_console(tmp_path, config=None, rows=None, failure=None, index="0"):
+    """造一份雷电实例配置目录，加一个只会记账的 console。
+
+    `get_settings` 用真实实现（它只读文件，正是被测的那段）；`list_devices()`
+    走 FakeLDConsole，免得真去 spawn 一个空文件当 exe；`_run` 记下命令并按
+    `failure` 决定退出码（实测 `modify --cpu 5` 是 rc 4294966291 + `parameter
+    error!`）。
+    """
+    bin_dir = tmp_path / "LDPlayer"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    exe = bin_dir / "ldconsole.exe"
+    exe.write_text("")
+    config_dir = bin_dir / "vms" / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    if config is not None:
+        (config_dir / f"leidian{index}.config").write_text(config)
+
+    class SettingsLDConsole(FakeLDConsole):
+        def __init__(self):
+            super().__init__(rows if rows is not None else [ld_row(index, 1111, 2222)])
+            self.bin_path = str(exe)
+            self.commands: list[list[str]] = []
+            self.failure = failure
+
+        def _run(self, cmd, shell=False, encoding=None, timeout=None):  # type: ignore[override]
+            self.commands.append(list(cmd))
+            if self.failure is not None and cmd[0] == self.failure[0]:
+                exit_code, output = self.failure[1]
+                return CmdResult(output, "", exit_code)
+            return CmdResult("", "", 0)
+
+    return SettingsLDConsole()
+
+
+def test_ld_get_settings_reads_the_instance_config(tmp_path):
+    console = ld_settings_console(tmp_path, config=LD_CONFIG)
+
+    settings = console.get_settings("0")
+
+    assert settings["propertySettings.phoneIMEI"] == "010306024934555"
+    assert settings["advancedSettings.cpuCount"] == "3"
+    assert all(isinstance(value, str) for value in settings.values())
+
+
+def test_ld_get_settings_stringifies_booleans_like_mumu(tmp_path):
+    """bool 要排 int 前面判，否则 True 会变成 "1" 而不是 "true"。"""
+    settings = ld_settings_console(tmp_path, config=LD_CONFIG).get_settings("0")
+
+    assert settings["basicSettings.rootMode"] == "true"
+    assert settings["basicSettings.autoRotate"] == "false"
+
+
+def test_ld_get_settings_flattens_the_nested_values(tmp_path):
+    settings = ld_settings_console(tmp_path, config=LD_CONFIG).get_settings("0")
+
+    assert settings["advancedSettings.resolution.width"] == "900"
+    assert settings["advancedSettings.resolution.height"] == "1600"
+    assert settings["advancedSettings.resolutionDpi"] == "400"
+
+
+def test_ld_get_settings_says_so_when_there_is_no_config(tmp_path):
+    """返回空 dict 会让调用方以为「这台机器没有设置」—— 必须报错。"""
+    console = ld_settings_console(tmp_path, config=None)
+
+    with pytest.raises(RuntimeError, match="读不到雷电实例 0 的配置"):
+        console.get_settings("0")
+
+
+def test_ld_set_settings_passes_the_modify_flags(tmp_path):
+    console = ld_settings_console(tmp_path, config=LD_CONFIG)
+
+    console.set_settings("0", cpu="2", memory="4096", root="1")
+
+    assert console.commands == [
+        ["modify", "--index", "0", "--cpu", "2", "--memory", "4096", "--root", "1"]
+    ]
+
+
+def test_ld_set_settings_refuses_a_key_the_vendor_would_silently_ignore(tmp_path):
+    """实测 `modify --bogus 1` 是 rc 0、stdout 空、什么都不改 —— 必须自己拦。"""
+    console = ld_settings_console(tmp_path, config=LD_CONFIG)
+
+    with pytest.raises(ValueError, match="不认识这些 key"):
+        console.set_settings("0", bogus="1")
+
+    assert console.commands == []
+
+
+def test_ld_set_settings_reports_the_vendors_parameter_error(tmp_path):
+    """实测 `modify --cpu 5` → rc 4294966291 + stdout `parameter error!`。
+
+    这是本库唯一能用退出码判成败的地方：`add` 成功时退出码就是新 index，
+    所以那三个动词一律靠回读 list2。
+    """
+    console = ld_settings_console(
+        tmp_path, config=LD_CONFIG, failure=("modify", (4294966291, "parameter error!"))
+    )
+
+    with pytest.raises(RuntimeError, match="parameter error"):
+        console.set_settings("0", cpu="5")
+
+
+def test_ld_set_settings_checks_the_instance_exists_first(tmp_path):
+    """实测 `modify --index 99` 也是 rc 0、什么都不改 —— 先确认实例在。"""
+    console = ld_settings_console(tmp_path, config=LD_CONFIG, rows=[])
+
+    with pytest.raises(RuntimeError, match="没有 index 为 0 的实例"):
+        console.set_settings("0", cpu="2")
+
+    assert console.commands == []
+
+
+def test_ld_set_settings_does_not_stop_a_running_instance(tmp_path):
+    """实测雷电的 modify 在运行中也是 rc 0 且配置立即落盘，不必先停机。"""
+    console = ld_settings_console(tmp_path, config=LD_CONFIG)
+    assert console.probe_state("0") is DeviceStatus.BOOT
+
+    console.set_settings("0", cpu="2")
+
+    assert [call[0] for call in console.commands] == ["modify"]
+
+
+def test_ld_read_and_write_speak_different_dialects(tmp_path):
+    """读是配置字段名、写是 modify 参数名 —— 雷电只有写有 CLI，这是它的形状。
+
+    锁住这个不对称，免得有人「顺手统一」成读得出的名字，然后写入静默失败。
+    """
+    console = ld_settings_console(tmp_path, config=LD_CONFIG)
+
+    assert "advancedSettings.cpuCount" in console.get_settings("0")
+    console.set_settings("0", cpu="2")
+    assert console.commands == [["modify", "--index", "0", "--cpu", "2"]]
+
+
+def test_settings_are_soft_members_of_the_interface():
+    """没实现的厂商抛 NotImplementedError，不静默失败、不返回假值。"""
+    bare = MumuConsole.__new__(MumuConsole)
+
+    with pytest.raises(NotImplementedError, match="没有实现 get_settings"):
+        EmulatorConsole.get_settings(bare, "0")
+
+    with pytest.raises(NotImplementedError, match="没有实现 set_settings"):
+        EmulatorConsole._write_settings(bare, "0", {"cpu": "2"})
+
+

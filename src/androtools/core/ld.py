@@ -3,7 +3,7 @@ import json
 import shutil
 import time
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from androtools import logger
 from androtools.android_sdk.platform_tools import AdbRunner
@@ -22,6 +22,66 @@ from androtools.core.session import ConsoleSession
 def _numeric_index(idx: str) -> int:
     """list2 的 index 是数字字符串。万一不是，排到最后而不是抛异常。"""
     return int(idx) if idx.isdigit() else 1 << 30
+
+
+#: 雷电 `modify` 的参数全表：参数名 → 合法取值（实测自 `ldconsole help` 与真机）。
+#:
+#: 这张表是**必需**的：实测 `modify --bogus 1` 是 rc 0、stdout 空、什么都不改
+#: —— 未知参数被**静默忽略**。不自己校验 key，调用方拼错一个名字就会得到一次
+#: 「调用成功、配置没变」的假写入。
+#:
+#: 值域**不在这里拦**：实测 `--cpu 5` → rc 4294966291（-5 的 unsigned）+ stdout
+#: `parameter error!`，`--memory 100` 同理 —— 厂商自己会拒，而且拒得可辨认
+#: （见 `_write_settings` 里的退出码检查）。
+#:
+#: 不存在 `--dpi` / `--linenum` / `--serialno` / `--nfc` / `--brand`；
+#: `--resolution` 一次写三个字段（`advancedSettings.resolution` 的 width/height
+#: 加 `advancedSettings.resolutionDpi`）。
+_MODIFY_VALUES: dict[str, str] = {
+    "resolution": "<宽,高,dpi>，如 900,1600,400",
+    "cpu": "1|2|3|4",
+    "memory": "256|512|768|1024|1536|2048|4096|8192（MB）",
+    "manufacturer": "<厂商名，如 asus>",
+    "model": "<机型，如 ASUS_Z00DUO>",
+    "pnumber": "<手机号>",
+    "imei": "<auto|15 位>",
+    "imsi": "<auto|15 位>",
+    "simserial": "<auto|20 位>",
+    "androidid": "<auto|16 位十六进制>",
+    "mac": "<auto|12 位十六进制，不带冒号>",
+    "autorotate": "1|0",
+    "lockwindow": "1|0",
+    "root": "1|0",
+}
+
+
+def _flatten(payload: dict[str, Any], prefix: str = "") -> dict[str, Any]:
+    """把配置里的嵌套 dict 展平成点号 key。
+
+    雷电的配置是「顶层 key 本身就是点号名字」（`advancedSettings.cpuCount`），
+    但值里还有嵌套：`advancedSettings.resolution` 是 `{width, height}`，
+    `hotkeySettings.*` 是 `{modifiers, key}`。展成
+    `advancedSettings.resolution.width` 才能保证返回 dict[str, str]。
+    """
+    flat: dict[str, Any] = {}
+    for key, value in payload.items():
+        name = f"{prefix}.{key}" if prefix else str(key)
+        if isinstance(value, dict):
+            flat.update(_flatten(value, name))
+        else:
+            flat[name] = value
+    return flat
+
+
+def _as_text(value: Any) -> str:
+    """配置值一律转成字符串（get_settings 的契约是 dict[str, str]）。
+
+    bool 要排 int 前面判：Python 里 True 也是 int，不先拦就会变成 "1"。
+    用 "true"/"false" 与 MuMu 那边的口径一致。
+    """
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
 
 
 class LDConsole(EmulatorConsole):
@@ -207,6 +267,87 @@ class LDConsole(EmulatorConsole):
                 return parts[1]
         return None
 
+    def get_settings(self, idx: int | str) -> dict[str, str]:
+        """读实例配置。雷电**没有读的 CLI**，只能解析它自己写的 JSON。
+
+        文件是 `vms/config/leidian{index}.config`，**扁平的点号 key** ——
+        `propertySettings.phoneIMEI` 就是字面的一个 key，不是嵌套。实测里面
+        约 70 个顶层 key：
+
+        - `propertySettings.{phoneIMEI, phoneIMSI, phoneSimSerial,
+          phoneAndroidId, phoneModel, phoneManufacturer, macAddress, phoneNumber}`
+        - `advancedSettings.{resolution{width,height}, resolutionDpi, cpuCount,
+          memorySize}`
+        - `basicSettings.{rootMode, autoRotate, lockWindow, fps, …}`
+        - `networkSettings.*`、`hotkeySettings.*`（这两个的值是嵌套 dict）
+
+        值里的嵌套 dict 展平成点号（`advancedSettings.resolution.width`），
+        值一律转字符串（bool 用 `"true"`/`"false"`）—— 保持「key → 字符串」
+        这条契约与 MuMu 那边一致。
+
+        ⚠️ 这里读出的 key（配置字段名）与 `set_settings` 收的 key
+        （`modify` 的参数名）**不是同一套名字**：雷电只有写有 CLI，读只能读配置
+        文件，两边的方言天然不同。例如读是 `advancedSettings.cpuCount`，写是
+        `cpu="2"`。这是本方法为「厂商方言」付出的代价；中立命名由领域动词提供。
+
+        新建的实例里 `advancedSettings.*` 与 `basicSettings.*` 那几项**整个键都
+        不存在**（实测 `cpuCount` / `memorySize` / `resolution` /
+        `resolutionDpi` / `rootMode` 全是 None），直到 `modify` 写进去才有 ——
+        默认值不在这个文件里，所以它们不会出现在返回值里。
+
+        Raises:
+            RuntimeError: 配置读不到（实例不存在，或雷电换了目录布局）。
+                **不返回空 dict** —— 那会让调用方以为「这台机器没有设置」。
+        """
+        path = self._config_path(idx)
+        if path is None or not path.is_file():
+            raise RuntimeError(
+                f"读不到雷电实例 {idx} 的配置"
+                f"（找 {path or '（拿不到 ldconsole 路径）'} 失败）。"
+            )
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8", errors="ignore"))
+        except (OSError, json.JSONDecodeError) as e:
+            raise RuntimeError(f"雷电实例 {idx} 的配置读不出来：{e}") from e
+
+        return {key: _as_text(value) for key, value in _flatten(payload).items()}
+
+    def _write_settings(self, idx: int | str, kv: dict[str, str]) -> None:
+        """`modify --index <idx> --<key> <value> ...`（一次调用可改多个）。
+
+        参数全表与值域见 `_MODIFY_VALUES`（也是 docstring 要求的那张表）。
+
+        三道检查，各拦一种「静默成功」：
+
+        1. **key 在不在表里** —— 实测未知参数是 rc 0、什么都不改；
+        2. **实例存不存在** —— 实测 `modify --index 99` 也是 rc 0、什么都不改；
+        3. **退出码** —— 实测值域不合法时 `modify --cpu 5` 给 rc 4294966291
+           （-5 的 unsigned）+ stdout `parameter error!`。
+
+        第 3 条是这个库**唯一**能用退出码判成败的地方：`add` 成功时退出码就是
+        新 index、`remove`/`rename` 失败时是负数且报错打在 stdout 上（所以那三个
+        动词一律靠回读 list2）。但 `modify` 的退出码是**单向可信**的：rc != 0
+        一定失败，rc == 0 不能证明成功（前两条就是反例），所以前两条必须自己拦。
+        """
+        unknown = sorted(key for key in kv if key not in _MODIFY_VALUES)
+        if unknown:
+            raise ValueError(
+                f"雷电的 modify 不认识这些 key：{unknown}。支持的 key 是 "
+                f"{sorted(_MODIFY_VALUES)}。注意雷电对未知参数是**静默忽略**的"
+                "（实测 rc 0、stdout 空、什么都不改），所以这里必须自己拦。"
+            )
+        self._require_instance(idx)
+
+        cmd = ["modify", "--index", str(idx)]
+        for key, value in kv.items():
+            cmd += [f"--{key}", value]
+        result = self._run(cmd)
+        if result.exit_code:
+            raise RuntimeError(
+                f"ldconsole {' '.join(cmd)} 失败（退出码 {result.exit_code}）："
+                f"{result.output or result.error or '厂商没有给出原因'}"
+            )
+
     def launch_device(self, idx: int | str):
         return self._run(["launch", "--index", str(idx)])
 
@@ -263,6 +404,15 @@ class LDConsole(EmulatorConsole):
             cmd = " ".join(cmd)
         return self.adb(idx, f"shell {cmd}", encoding=encoding)
 
+    def _config_path(self, idx: int | str) -> Path | None:
+        """实例配置的路径：`vms/config/leidian{index}.config`，相对 ldconsole.exe。
+
+        拿不到 ldconsole 路径时返回 None（自己拼一个相对路径去读别人的 CWD 更糟）。
+        """
+        if not self.bin_path:
+            return None
+        return Path(self.bin_path).parent / "vms" / "config" / f"leidian{idx}.config"
+
     def fingerprint(self, idx: int | str) -> str | None:
         """这个实例在雷电自己眼里的身份：它的 MAC。
 
@@ -277,15 +427,8 @@ class LDConsole(EmulatorConsole):
         注意 `leidian{index}.config` 里的 index 是雷电的实例名，和
         `list2` 的行序一致 —— 实测两台实例分别是 leidian0 / leidian1。
         """
-        if not self.bin_path:
-            return None
-        config = (
-            Path(self.bin_path).parent
-            / "vms"
-            / "config"
-            / f"leidian{idx}.config"
-        )
-        if not config.is_file():
+        config = self._config_path(idx)
+        if config is None or not config.is_file():
             return None
         try:
             payload = json.loads(config.read_text(encoding="utf-8", errors="ignore"))

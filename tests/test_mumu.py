@@ -53,6 +53,22 @@ VM_NOT_RUNNING = {
     "errmsg": "vm not running, can not connect NemuShell !!",
 }
 
+# 实测：MuMuManager.exe setting -v 0 -a —— 扁平 dict，值全是字符串，没有嵌套
+SETTINGS = {
+    "core_version": "6.8.2.0",
+    "resolution_width": "540.000000",
+    "resolution_height": "960.000000",
+    "resolution_dpi": "240.000000",
+    "resolution_width.custom": "540.000000",
+    "performance_cpu.custom": "2",
+    "performance_mem.custom": "1.750000",
+    "root_permission": "true",
+}
+
+# 实测：写只读 key 的报错。注意它说的是「这个 key 只读」——
+# 在**停机**实例上写只读 key 同样是 -101，与实例在不在跑无关。
+KEY_NOT_WRITABLE = {"errcode": -101, "errmsg": "key not writable"}
+
 
 class ScriptedMumuConsole(MumuConsole):
     """把 MuMuManager 的输出按命令脚本化，其余全部走真实实现。"""
@@ -610,3 +626,79 @@ def test_mumu_rename_surfaces_the_param_error():
 
     with pytest.raises(RuntimeError, match="Missing param <name> value error"):
         mumu.rename("0", "")
+
+
+# --------------------------------------------------------------------------- #
+# get_settings / set_settings —— 厂商方言的读写
+# --------------------------------------------------------------------------- #
+
+
+def test_mumu_get_settings_returns_the_flat_table():
+    mumu = console(**{"setting -v 0 -a": SETTINGS})
+
+    settings = mumu.get_settings("0")
+
+    assert settings["performance_cpu.custom"] == "2"
+    assert settings["root_permission"] == "true"
+    assert all(isinstance(value, str) for value in settings.values())
+
+
+def test_mumu_get_settings_is_one_console_call():
+    mumu = console(**{"setting -v 0 -a": SETTINGS})
+
+    mumu.get_settings("0")
+
+    assert mumu.calls == [["setting", "-v", "0", "-a"]]
+
+
+def test_mumu_set_settings_writes_every_key_in_one_call():
+    mumu = console(**{"setting -v 0 -k": {"performance_cpu.custom": "2"}})
+
+    mumu.set_settings("0", **{"performance_cpu.custom": "2", "root_permission": "true"})
+
+    assert mumu.calls == [
+        [
+            "setting",
+            "-v",
+            "0",
+            "-k",
+            "performance_cpu.custom",
+            "-val",
+            "2",
+            "-k",
+            "root_permission",
+            "-val",
+            "true",
+        ]
+    ]
+
+
+def test_mumu_set_settings_surfaces_the_vendor_error():
+    """写只读 key 会被拒 —— 报错要透出厂商的 errcode 文案。"""
+    mumu = console(**{"setting -v 0 -k": KEY_NOT_WRITABLE})
+
+    with pytest.raises(RuntimeError, match="key not writable"):
+        mumu.set_settings("0", resolution_width="720")
+
+
+def test_mumu_set_settings_does_not_stop_a_running_instance():
+    """「只有停机才能写」是实测推翻的误解：运行中的实例写可写 key 完全成功。
+
+    所以这里**不该**出现任何 control/shutdown —— 白关一次别人的模拟器，
+    比「值到下次启动才生效」是更坏的意外。
+    """
+    mumu = console(**{"setting -v 1 -k": {"performance_cpu.custom": "2"}})
+
+    mumu.set_settings("1", **{"performance_cpu.custom": "2"})
+
+    assert [call[0] for call in mumu.calls] == ["setting"]
+
+
+def test_set_settings_refuses_an_empty_call():
+    """空调用不是合法请求 —— 报 ValueError，而不是发一条什么都不写的命令。"""
+    mumu = console()
+
+    with pytest.raises(ValueError, match="至少要给一个 key=value"):
+        mumu.set_settings("0")
+
+    assert mumu.calls == []

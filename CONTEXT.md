@@ -67,6 +67,10 @@ _Avoid_: 启动状态、PID 判断（说清是哪一种）
 一个 Device 在某一时刻的状态，取值为 STOP / BOOT / DEVICE / BOOT_COMPLETED / OFFLINE / ERORR。STOP 的含义随宿主而变，对模拟器是「尚未启动」，对真机是「adb 看不见它」—— 拔线、关 USB 调试都落在这里。而 OFFLINE 与 ERROR 都表示「连上了但用不了」。
 _Avoid_: 状态、status（值本身叫 `DeviceStatus`）
 
+**EmulatorInstance**:
+一台模拟器实例在某一时刻的**观测快照**：身份（一个 `EmulatorInfo`）+ Device State + Android 版本。它是 frozen 的，要新状态就重新列一次（`list_instances()`）。与 `EmulatorInfo` 的分工是**身份 vs 快照**：前者构造 session，字段稳定；后者回答「这一刻它长什么样」。相等性**不看 Serial** —— 模拟器重启一次端口就变一个，那不该让「同一台实例」变成两台。
+_Avoid_: 设备、Device（那是 adb 那一侧的观察对象）、Info（含含糊糊；要么说 `EmulatorInfo` 要么说 `EmulatorInstance`）
+
 **VM PID**:
 模拟器内部负责与 adb 通信的那个进程的 PID。它与模拟器界面进程的 PID 是两个不同的进程；判断模拟器是否**完全**启动，需要两者同时存在。
 _Avoid_: PID（单独说 PID 时通常指界面进程）、进程号

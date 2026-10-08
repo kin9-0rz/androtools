@@ -13,6 +13,46 @@
   `DiscoveredDevice`（展示名 / primary serial / 全部别名 / 认出的厂商实例）。
   一台离线或问不动的设备不会被丢弃，仍在列表里。
 
+### 新增（实例管理）
+
+- **`EmulatorConsole.list_instances()`** —— 一次调用问出「我现在有几台机器」：
+  每台的编号、名字、运行状态、Android 版本，返回 `EmulatorInstance` 快照
+  （`info` / `status` / `android_version`）。不依赖 adb，也不启动任何东西。
+  与只给编号的 `instances()` 分工不同：那个是反查流程的内部需要。
+
+  快照的相等性**不看 adb serial** —— MuMu 重启一次端口就变一个，那不该让
+  「同一台实例」变成两台。
+
+- **`EmulatorConsole.create` / `clone` / `delete` / `rename`** —— 实例增删改。
+  `create` / `clone` 返回新实例的编号，**拿不到就抛错，不返回猜的值**
+  （返回空串会让调用方拿着它去启动错的机器）。`delete` 在 MuMu 侧会先把运行中
+  的实例停干净再删 —— 实测 MuMu 拒绝对运行中的实例执行 delete（errcode -103）。
+  名字**不必唯一**（实测两台重名都能建），所以别拿名字当标识，编号才是。
+
+- **`EmulatorConsole.get_settings` / `set_settings`** —— 读写某台实例的设置。
+  key 是**厂商方言**（`performance_cpu.custom`、`advancedSettings.cpuCount` …），
+  这里不做统一命名；要中立命名请用领域动词。
+  **写下去的值在实例下次启动时生效，本库不替你重启。** 实测两家都能在实例
+  运行中写设置，所以故意**不做**「停机 → 写 → 恢复运行」的编排：白关一次别人
+  的模拟器（重启 30s+、丢掉正在跑的东西）是比「值下次启动才生效」更坏的意外。
+  想让它立刻生效就自己 `reboot_device(idx)`。
+
+  注意 MuMu 报的 `key not writable` 说的是「这个 key 只读」，**与实例在不在跑
+  无关** —— 同一个只读 key 在停机和运行中的实例上写都是这个错。
+
+上面这些新增成员都是**软成员**（带默认实现，抛 `NotImplementedError`），
+所以已有的自定义 Console 不会因此无法实例化；厂商给不出的能力一律抛
+`NotImplementedError`，不静默失败、不返回假值。
+
+### 修复
+
+- **中文实例名不再是乱码。** MuMuManager 的输出是 UTF-8，`ldconsole` 的是 GBK，
+  而两者过去都按本机 locale 解码（简中 Windows 上是 cp936）—— MuMu 的中文设备名
+  因此解成乱码。现在两个 adapter 各自声明自己的编码，与本机 locale 无关。
+- **`LDConsole.get_pids` 按编号取 PID，不再按行号。** 原来 `list2` 的第 n 行
+  被当成编号 n 的实例，所以编号有空洞时会 `IndexError`，更糟的是**安静地返回
+  另一台实例的 PID**。现在找不到就返回 `Pids(-1, -1)`，与 `probe_state()` 一致。
+
 ## 2.1.0
 
 已发布到 PyPI。

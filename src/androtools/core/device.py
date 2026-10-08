@@ -253,6 +253,51 @@ class EmulatorConsole(CMD, ABC):
         """改实例名。名字**不必唯一**（MuMu 允许重名），所以别拿它当标识。"""
         raise NotImplementedError(f"{type(self).__name__} 没有实现 rename()")
 
+    def get_settings(self, idx: int | str) -> dict[str, str]:
+        """读一台实例的全部设置，返回**厂商方言**的 key → 字符串值。
+
+        key 不做中立化 —— 中立命名的价值由领域动词（`set_resolution` /
+        `set_cpu` / …）提供；这个方法的用处是「一次拿到结构化的整份」，以及把
+        厂商之间巨大的差异（MuMu 一条命令给 JSON；雷电没有读的 CLI，只能解析它
+        自己写的配置文件）收在 adapter 后面。所以同一个 key 在两家叫不同的名字，
+        跨厂商的代码别拿它当通用接口用。
+
+        厂商连读都给不出来时抛 NotImplementedError，**不要**返回空 dict 或半份
+        —— 那会让调用方以为「这台机器没有设置」。
+        """
+        raise NotImplementedError(f"{type(self).__name__} 没有实现 get_settings()")
+
+    def set_settings(self, idx: int | str, **kv: str) -> None:
+        """写设置。key 同样是厂商方言，值一律是字符串。
+
+        至少要给一个 key：空调用不是合法请求，报 ValueError 而不是静默成功。
+
+        **写下去的值在实例下次启动时才生效。** 厂商把「期望值」留到启动时才
+        变成生效值（MuMu 可写的 `.custom` 那一批是期望值，只读的
+        `resolution_width` 才是当前生效值；雷电同样把 cpuCount / memorySize
+        这类字段留到下次启动）。所以本层**不替你重启**：要不要现在就看到效果是
+        调用方的决定，而顺手关掉别人的模拟器是更坏的意外。要立刻生效就自己
+        `reboot_device(idx)`。
+
+        实测说明「只有停机才能写」是个误解：MuMu 的可写 key 在**运行中**写完全
+        成功（对运行中的实例逐个写回 12 个关键 key，全部 errcode 0），雷电的
+        `modify` 在运行中也是 rc 0 且配置立即落盘。MuMu 报的
+        `key not writable` 意思是「**这个 key 只读**」，与实例在不在跑无关
+        （只读的 `resolution_width` 在**停机**实例上写同样是 -101）。想知道某个
+        key 可不可写，用 `setting -v <idx> -k <key> -i` 看它的 writable 字段。
+        """
+        if not kv:
+            raise ValueError("set_settings() 至少要给一个 key=value")
+        self._write_settings(idx, kv)
+
+    def _write_settings(self, idx: int | str, kv: dict[str, str]) -> None:
+        """厂商方言的写入实现，由 `set_settings` 调用。
+
+        拆出来是为了让「至少要给一个 key」这条中立规矩只写一遍 —— 两家 adapter
+        只管自己的方言。没实现的厂商默认抛 NotImplementedError。
+        """
+        raise NotImplementedError(f"{type(self).__name__} 没有实现 set_settings()")
+
     def fingerprint(self, idx: int | str) -> str | None:
         """这个实例在 adb 上可被认出来的唯一值；拿不出就返回 None。
 

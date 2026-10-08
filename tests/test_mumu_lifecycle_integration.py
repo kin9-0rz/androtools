@@ -1,4 +1,4 @@
-"""#3 的真机验收：create / clone / rename / delete 在真的 MuMu 上跑一遍。
+"""真机验收：#3 的 create/clone/rename/delete 与 #4 的 settings 在真的 MuMu 上跑一遍。
 
 默认被 `-m "not integration"` 排除，只有显式 `pytest -m integration` 才跑 ——
 它会**真的在你机器上建实例，再删掉**。
@@ -99,3 +99,45 @@ def test_clone_copies_the_source_into_a_new_index(mumu):
     remaining = {i.index for i in console.list_instances()}
     assert copy not in remaining
     assert source in remaining
+
+
+def test_settings_round_trip_on_a_real_instance(mumu):
+    """set_settings 写下去的值能被 get_settings 读回来，生效值也跟着变。
+
+    这是 #4 的核心真机声明。注意 `vm_cpu` 是**生效值**（由 performance_mode
+    推出来），所以只写 `.custom` 不改 mode 时它不会动 —— 两个都要写。
+    """
+    console, created = mumu
+
+    idx = console.create(f"{PREFIX}-设置")
+    created.append(idx)
+
+    before = console.get_settings(idx)
+    assert all(isinstance(v, str) for v in before.values()), "MuMu 的值全是字符串"
+    assert "core_version" in before, "实测 setting -a 里一定有这个只读 key"
+
+    # 挑一个与当前生效值不同的值，否则这个断言等于什么都没验
+    default = before["vm_cpu"]
+    target = "1" if default != "1" else "2"
+
+    console.set_settings(idx, performance_mode="custom", **{"performance_cpu.custom": target})
+
+    after = console.get_settings(idx)
+    assert after["performance_cpu.custom"] == target
+    assert after["performance_mode"] == "custom"
+    assert after["vm_cpu"] == target, f"生效值没跟着走：from {default} expected {target}"
+
+
+def test_settings_surface_a_read_only_key_on_a_real_instance(mumu):
+    """只读 key 报 -101 `key not writable` —— 与实例在不在跑无关。
+
+    实测：同一个只读 key 在停机的 index 0 和运行中的 index 1 上写都是 -101。
+    所以这句文案说的是「这个 key 只读」，不是「实例在跑」。
+    """
+    console, created = mumu
+
+    idx = console.create(f"{PREFIX}-只读")
+    created.append(idx)
+
+    with pytest.raises(RuntimeError, match="key not writable"):
+        console.set_settings(idx, resolution_width="720")

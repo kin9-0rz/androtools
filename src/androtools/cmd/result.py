@@ -13,6 +13,10 @@ class CmdResult:
     4294966295（unsigned），而 `add` 成功时的退出码本身就是**新实例的 index**。
     它的报错还写在 stdout 上。所以这个库一律靠回读实际效果判成败，
     别把 exit_code == 0 当成功。
+
+    不过 `exit_code != 0` 是**单向可信**的失败信号：雷电 `modify` 值域不合法
+    就是非零 + stdout `parameter error!`。反过来说，零**不能**证明成功 ——
+    `modify --bogus 1` 与 `modify --index 99` 都是零，但什么都没改。
     """
 
     def __post_init__(self):

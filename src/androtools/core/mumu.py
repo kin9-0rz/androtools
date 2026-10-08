@@ -300,6 +300,43 @@ class MumuConsole(EmulatorConsole):
         """
         self._call("rename", "-v", str(idx), "--name", name)
 
+    def get_settings(self, idx: int | str) -> dict[str, str]:
+        """`setting -v <idx> -a`：一条命令拿到整份设置。
+
+        实测（6.8.2.0，本机 index 0）：**扁平 dict，113 个 key，值全是字符串，
+        没有嵌套、不用从 errcode 里绕**。其中约 69 个是只读的「当前生效值」
+        （`core_version` / `vm_cpu` / `vm_mem` / `resolution_width` /
+        `resolution_height` / `resolution_dpi`），可写的是对应的 `.custom`
+        （期望值）；可写 key 的数量**随实例而变**（本机 index 0 量到 44 个，
+        index 1 是 46 个）。
+
+        想知道某个 key 可不可写、有哪些合法取值，用
+        `setting -v <idx> -k <key> -i`（返回 desc / option_values / readable /
+        writable）—— 本库没有包装它。另有 `-aw`（只要可写的）也是同一条命令，
+        本层一律用 `-a`：读全量比读子集更少意外。
+        """
+        payload = self._call("setting", "-v", str(idx), "-a")
+        return {str(key): str(value) for key, value in payload.items()}
+
+    def _write_settings(self, idx: int | str, kv: dict[str, str]) -> None:
+        """一次调用写多个 key：`setting -v <idx> -k K1 -val V1 -k K2 -val V2`。
+
+        实测（本机）：key/value 可以重复出现，一次写完多个；返回值是**回显**刚写
+        进去的那些键值（不是 `{"errcode": 0}`），所以不用自己解析 —— `_call`
+        对非零 errcode 抛异常，写不进去时它给的是
+        `{"errcode": -101, "errmsg": "key not writable"}`。
+
+        **必须带 `-v <idx>`**：不带 `-v` 是改**全局设置**，不是这台实例的。那是
+        另一个能力，不该从 `set_settings(idx, ...)` 里悄悄发生。
+
+        清空某个 key 用 `-val __null__`（实测有效），本库不拦 —— 它是厂商方言的
+        一部分。
+        """
+        cmd = ["setting", "-v", str(idx)]
+        for key, value in kv.items():
+            cmd += ["-k", key, "-val", value]
+        self._call(*cmd)
+
     def launch_device(self, idx: int | str):
         return self._run(["control", "-v", str(idx), "launch"])
 
