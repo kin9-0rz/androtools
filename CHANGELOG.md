@@ -2,6 +2,25 @@
 
 本文件记录面向使用者的破坏性变更。内部重构（seam 抽取、测试补充）不在此列。
 
+## 2.2.1
+
+已发布到 PyPI。
+
+补上 `pyproject.toml` 的 classifiers —— 这个包此前一条都没有，所以 PyPI 页面上的
+Development Status 与 Python 版本徽章一直是 `unknown` / `missing`（shields 的这两个
+徽章只读 classifiers，不读 `requires-python`）。同时把 CI 的 Python matrix 从
+`3.10 / 3.13` 扩到 `3.10`–`3.13`，与声明的范围对齐。
+
+没有 API 变更。
+
+### 元数据
+
+- 新增 classifiers：`Development Status :: 4 - Beta`、`Programming Language :: Python :: 3`
+  及 `3.10`–`3.13`、`Topic :: Software Development :: Libraries :: Python Modules`。
+  **没有**加 `License ::` —— 它已被 PEP 639 弃用，本包用的是 SPDX 表达式。
+- CI 从 `["3.10", "3.13"]` 扩到 `["3.10", "3.11", "3.12", "3.13"]`：声明支持某个版本
+  却从不跑它，等于没有承诺。
+
 ## 2.2.0
 
 `EmulatorConsole` 从「开关机 + adb 做不到的事」扩展成四种能力：实例编目、配置读写、

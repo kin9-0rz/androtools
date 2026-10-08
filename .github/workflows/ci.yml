@@ -7,14 +7,15 @@ on:
 
 jobs:
   check:
-    # 3.10 是 pyproject 里声明的下限；3.13 是本地开发用的版本。两个都要测 ——
-    # 声明支持某个版本却从不在这儿跑它，等于没有承诺。
+    # 3.10 是 pyproject 里声明的下限；3.13 是本地开发用的版本。中间两个也跑 ——
+    # 声明支持某个版本却从不在这儿跑它，等于没有承诺。这段必须和 pyproject.toml
+    # 的 classifiers 覆盖同一段版本。
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        python: ["3.10", "3.13"]
+        python: ["3.10", "3.11", "3.12", "3.13"]
 
     steps:
       # v5 / v7 是各自第一个用 node24 的 major（GitHub 已弃用 node20）。

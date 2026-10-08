@@ -1,6 +1,6 @@
 # androtools
 
-[![PyPI](https://img.shields.io/pypi/v/androtools?style=flat-square)](https://pypi.org/project/androtools/) ![PyPI - Status](https://img.shields.io/pypi/status/androtools?style=flat-square) ![PyPI - Python Version](https://img.shields.io/pypi/pyversions/androtools?style=flat-square) ![PyPI - Downloads](https://img.shields.io/pypi/dw/androtools?style=flat-square) ![PyPI - License](https://img.shields.io/pypi/l/androtools?style=flat-square)
+[![PyPI](https://img.shields.io/pypi/v/androtools?style=flat-square)](https://pypi.org/project/androtools/) ![PyPI - Status](https://img.shields.io/pypi/status/androtools?style=flat-square) ![PyPI - Python Version](https://img.shields.io/pypi/pyversions/androtools?style=flat-square) ![PyPI - License](https://img.shields.io/pypi/l/androtools?style=flat-square)
 
 对 Android SDK、第三方模拟器命令行工具、以及通过 adb 连接的 Android 设备的封装。
 
@@ -85,14 +85,15 @@ MuMu 启动后 adb 端口会变，`launch()` 会从 Console 查出新的 `serial
 ## 多开模拟器时 serial 会被认错
 
 雷电和 MuMu 的 serial 都落在 `emulator-5554` 这一段号段里，**两家会撞**。实测两台雷电
-+ 两台 MuMu 同时开着时：
 
-| serial | 实际是谁 |
-| --- | --- |
-| `emulator-5554` | 雷电 index 0 |
-| `emulator-5556` | MuMu index 1 —— 正好是雷电 index 1 该去的位置 |
-| `127.0.0.1:16384` / `127.0.0.1:16416` | MuMu（tcp 地址，MuMu 的权威身份） |
-| —— | 雷电 index 1 在 adb 里**根本不出现** |
+- 两台 MuMu 同时开着时：
+
+| serial                                | 实际是谁                                      |
+| ------------------------------------- | --------------------------------------------- |
+| `emulator-5554`                       | 雷电 index 0                                  |
+| `emulator-5556`                       | MuMu index 1 —— 正好是雷电 index 1 该去的位置 |
+| `127.0.0.1:16384` / `127.0.0.1:16416` | MuMu（tcp 地址，MuMu 的权威身份）             |
+| ——                                    | 雷电 index 1 在 adb 里**根本不出现**          |
 
 推出来的 serial 不会「连不上」，它会**合法地连到别人的模拟器**上 —— 连雷电官方的
 `ldconsole adb --index 1` 都会安静地返回 MuMu 那台设备的属性（实测返回 `SM-A5560`）。
@@ -313,7 +314,7 @@ make typecheck       # mypy
 make test-integration   # 需要真实 Android SDK 和设备
 ```
 
-CI 在 `.github/workflows/ci.yml`，跑 Python 3.10（声明的最低版本）和 3.13。
+CI 在 `.github/workflows/ci.yml`，跑 Python 3.10–3.13 —— 与 `pyproject.toml` 里 classifiers 声明的范围是同一段。
 
 ## 术语
 
