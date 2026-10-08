@@ -5,8 +5,45 @@ import time
 from typing import Any, Callable
 
 from androtools.android_sdk.platform_tools import AdbRunner
-from androtools.core.device import EmulatorConsole, DeviceStatus, EmulatorInfo
+from androtools.core.device import (
+    EmulatorConsole,
+    DeviceStatus,
+    EmulatorInfo,
+    EmulatorInstance,
+    bundled_adb_path,
+)
 from androtools.core.session import ConsoleSession
+
+
+def _normalize_android_version(value: Any) -> str | None:
+    """MuMu 报的是 "12.0" / "15.0"，而 Device.android_version 读的是 "12" / "15"。
+
+    统一成后者，否则「同一个版本」在两个地方是两个字符串。
+    """
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    return text[:-2] if text.endswith(".0") else text
+
+
+def _index_sort_key(idx: str) -> tuple[int, int]:
+    """`info -v all` 的键是字符串形式的 index，按数值排序才是实例顺序。
+
+    非数字的键排在后面 —— MuMu 现在不给这种键，但排序键不该因此抛异常。
+    """
+    return (0, int(idx)) if idx.isdigit() else (1, 0)
+
+
+def _status_of(raw: dict[str, Any]) -> DeviceStatus:
+    """MuMu 直接给出进程状态，不需要像雷电那样推断。
+
+    用的是 is_process_started 而不是 player_state：probe_state 只粗略回答
+    「进程在不在」，而 player_state 的取值我们没有穷举过（MuMu 换版本可能
+    加新值），拿它做判断反而脆。开机是否完成由 session 用 adb 继续判定。
+    """
+    return DeviceStatus.BOOT if raw.get("is_process_started") else DeviceStatus.STOP
 
 
 class MumuConsole(EmulatorConsole):
@@ -60,6 +97,33 @@ class MumuConsole(EmulatorConsole):
         """MuMu 的实例编号就是 `info -v all` 返回的那个 dict 的键。"""
         return list(self._call("info", "-v", "all"))
 
+    def list_instances(self) -> list[EmulatorInstance]:
+        """每台实例一条快照，**含未启动的**。一次 `info -v all` 就够，不碰 adb。
+
+        MuMu 报 android_version="12.0"，这里归一化成 "12"（与 Device.android_version
+        口径一致）。serial 只对运行中的实例存在 —— 未启动时 MuMu 把 adb_host_ip /
+        adb_port 两个键整个省略了，**不能**用 16384 + 2*index 推算：实测本机
+        index 0 占 16384、index 1 是 16416（15.0 引擎另占一段）。
+        """
+        payload = self._call("info", "-v", "all")
+        entries = sorted(payload.items(), key=lambda kv: _index_sort_key(kv[0]))
+        return [self._to_instance(idx, raw) for idx, raw in entries]
+
+    def _to_instance(self, idx: str, raw: dict[str, Any]) -> EmulatorInstance:
+        host, port = raw.get("adb_host_ip"), raw.get("adb_port")
+        serial = f"{host}:{port}" if host and port else None
+        return EmulatorInstance(
+            info=EmulatorInfo(
+                name=raw.get("name", ""),
+                serial=serial,
+                adb_path=bundled_adb_path(self.bin_path),
+                index=str(idx),
+                console_path=self.bin_path or "",
+            ),
+            status=_status_of(raw),
+            android_version=_normalize_android_version(raw.get("android_version")),
+        )
+
     def fingerprint(self, idx: int | str) -> str | None:
         """拿不出来 —— 恒为 None，所以 `identify` 会跳过 MuMu。
 
@@ -102,16 +166,8 @@ class MumuConsole(EmulatorConsole):
             ) from e
 
     def probe_state(self, idx: int | str) -> DeviceStatus:
-        """MuMu 直接给出进程状态，不需要像雷电那样推断。
-
-        用的是 is_process_started 而不是 player_state：probe_state 只粗略回答
-        「进程在不在」，而 player_state 的取值我们没有穷举过（MuMu 换版本可能
-        加新值），拿它做判断反而脆。开机是否完成由 session 用 adb 继续判定。
-        """
-        info = self.instance(idx)
-        if not info.get("is_process_started"):
-            return DeviceStatus.STOP
-        return DeviceStatus.BOOT
+        """MuMu 直接给出进程状态，不需要像雷电那样推断。"""
+        return _status_of(self.instance(idx))
 
     def launch_device(self, idx: int | str):
         return self._run(["control", "-v", str(idx), "launch"])

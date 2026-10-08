@@ -22,6 +22,7 @@ from androtools.core.constants import KeyEvent
 from androtools.core.device import (
     EmulatorConsole,
     DeviceStatus,
+    EmulatorInstance,
     Pids,
 )
 from androtools.core.ld import LDConsole, LDPlayer
@@ -280,12 +281,16 @@ class FakeLDConsole(LDConsole):
 
     get_pids 的列解析用真实实现，否则测的就不是我们改的那段代码了。
     故意不调 super().__init__：那会去 shutil.which 找 ldconsole.exe。
+    bin_path 直接给个名字，list_instances() 才拼得出 EmulatorInfo。
     """
 
     def __init__(self, rows):
         self.rows = rows
+        self.bin_path = "ldconsole.exe"
+        self.reads = 0
 
     def list_devices(self) -> str:
+        self.reads += 1
         return "\n".join(self.rows)
 
 
@@ -319,6 +324,25 @@ def test_ld_pids_come_from_the_right_columns():
     assert console.get_pids("0") == Pids(1111, 2222)
 
 
+def test_ld_pids_are_matched_by_index_not_by_line_number():
+    """回归测试：get_pids 曾经用 lines[int(idx)]，把行号当成了 index。
+
+    实例被删过之后 index 有空洞（只剩 0 和 2 时第 3 行根本不存在），行号匹配
+    要么 IndexError，要么错位后静默取到**另一个实例**的 PID。
+    """
+    console = FakeLDConsole([ld_row(0, 1111, 2222), ld_row(2, 3333, 4444)])
+
+    assert console.get_pids("2") == Pids(3333, 4444)
+    assert console.get_pids("0") == Pids(1111, 2222)
+
+
+def test_ld_pids_of_a_missing_index_are_not_another_instances():
+    console = FakeLDConsole([ld_row(0, 1111, 2222)])
+
+    assert console.get_pids("1") == Pids(-1, -1)
+    assert console.probe_state("1") == DeviceStatus.STOP
+
+
 def test_ld_probe_state_stop_when_vm_pid_missing():
     console = FakeLDConsole([ld_row(0, 1111, -1)])
 
@@ -338,6 +362,63 @@ def test_both_consoles_satisfy_the_same_interface():
     assert issubclass(MumuConsole, EmulatorConsole)
     assert LDConsole.__abstractmethods__ == frozenset()
     assert MumuConsole.__abstractmethods__ == frozenset()
+
+
+# --------------------------------------------------------------------------- #
+# list_instances —— 起点：有几台、哪台在跑（两个 adapter 各自答一次）
+# --------------------------------------------------------------------------- #
+
+
+def test_ld_list_instances_reads_every_row():
+    console = FakeLDConsole([ld_row(0, 1111, 2222), ld_row(1, -1, -1)])
+
+    instances = console.list_instances()
+
+    assert [i.index for i in instances] == ["0", "1"]
+    assert instances[0].is_running is True
+    assert instances[1].is_running is False
+
+
+def test_ld_list_instances_trusts_the_two_pids_not_the_state_column():
+    """第 4 列说「运行中」，但两个 PID 不都在 —— 那是半启动，必须是 STOP。
+
+    回归风险：拿第 4 列当运行状态，会把「界面进程死了但 VBox 还活着」报成在跑，
+    和 probe_state() 的判据分裂成两套。
+    """
+    console = FakeLDConsole([ld_row(0, 1111, -1)])
+
+    assert console.list_instances()[0].status == DeviceStatus.STOP
+    assert console.list_instances()[0].status == console.probe_state("0")
+
+
+def test_ld_list_instances_has_no_serial_and_no_version():
+    """serial 要拿 MAC 指纹去 adb 上反查，android_version 雷电根本不报。
+
+    列实例是纯 Console 调用，不该因此依赖 adb。
+    """
+    instance = FakeLDConsole([ld_row(0, 1111, 2222)]).list_instances()[0]
+
+    assert instance.serial is None
+    assert instance.android_version is None
+    assert instance.info.console_path == "ldconsole.exe"
+
+
+def test_ld_list_instances_reads_the_device_list_once():
+    """一次 list2 回答全部实例；逐台再问一次既慢又可能拿到不一致的快照。"""
+    console = FakeLDConsole([ld_row(0, 1111, 2222), ld_row(1, -1, -1)])
+
+    console.list_instances()
+
+    assert console.reads == 1
+
+
+def test_list_instances_is_a_soft_member_of_the_interface():
+    """厂商没实现就报出来，**不能**返回空列表。
+
+    空列表会被读成「一台实例都没有」，那是错的——而且很难发现。
+    """
+    with pytest.raises(NotImplementedError, match="没有实现 list_instances"):
+        EmulatorConsole.list_instances(MumuConsole.__new__(MumuConsole))
 
 
 def test_device_console_rejects_incomplete_adapter():

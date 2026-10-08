@@ -7,7 +7,14 @@ from typing import Callable
 
 from androtools import logger
 from androtools.android_sdk.platform_tools import AdbRunner
-from androtools.core.device import EmulatorConsole, DeviceStatus, EmulatorInfo, Pids
+from androtools.core.device import (
+    EmulatorConsole,
+    DeviceStatus,
+    EmulatorInfo,
+    EmulatorInstance,
+    Pids,
+    bundled_adb_path,
+)
 from androtools.core.identity import IDENTITY_CMD, normalize_mac, parse_mac
 from androtools.core.session import ConsoleSession
 
@@ -34,20 +41,61 @@ class LDConsole(EmulatorConsole):
         """
         return self._run(["list2"]).output
 
-    def get_pids(self, idx: int | str) -> Pids:
-        """按 list2 的列序取 PID：第 5 列是界面进程，第 6 列是 VBox 进程。"""
-        lines = self.list_devices().splitlines()
-        parts = lines[int(idx)].split(",")
+    def _rows(self) -> list[list[str]]:
+        """`list2` 的 CSV，每行 10 列。空行与全空输出都过滤掉。
 
-        return Pids(int(parts[5]), int(parts[6]))
-
-    def instances(self) -> list[str]:
-        """雷电的实例编号就是 list2 的行序，第 0 列。"""
+        列序见 `list_devices()` 的 docstring。行号**不等于** index ——
+        实例被删过之后 index 会有空洞。
+        """
         return [
-            line.split(",")[0]
+            [cell.strip() for cell in line.split(",")]
             for line in self.list_devices().splitlines()
             if line.strip()
         ]
+
+    def get_pids(self, idx: int | str) -> Pids:
+        """按 list2 的列序取 PID：第 5 列是界面进程，第 6 列是 VBox 进程。
+
+        按第 0 列匹配，**不能**用行号当 index：实例被删过之后 index 有空洞
+        （只剩 0 和 2 时，第 3 行根本不存在），行号匹配要么 IndexError，要么
+        错位后静默取到**另一个实例**的 PID。找不到 index 返回 -1，由调用方
+        自己决定怎么解读 —— 对 probe_state 来说那就是 STOP。
+        """
+        for parts in self._rows():
+            if parts[0] == str(idx):
+                return Pids(int(parts[5]), int(parts[6]))
+        return Pids(-1, -1)
+
+    def instances(self) -> list[str]:
+        """雷电的实例编号就在 list2 的第 0 列。"""
+        return [parts[0] for parts in self._rows()]
+
+    def list_instances(self) -> list[EmulatorInstance]:
+        """每台实例一条快照，**含未启动的**。一次 `list2` 就够，不碰 adb。
+
+        serial 恒为 None：雷电的 serial 要拿 MAC 指纹去 adb 上反查才知道
+        （见 `LDPlayer.resolve_serial`），而「列有哪些实例」不该依赖 adb。
+        android_version 也拿不到 —— 雷电的实例配置里不记它。
+        """
+        return [self._to_instance(parts) for parts in self._rows()]
+
+    def _to_instance(self, parts: list[str]) -> EmulatorInstance:
+        index, name = parts[0], parts[1]
+        pids = Pids(int(parts[5]), int(parts[6]))
+        return EmulatorInstance(
+            info=EmulatorInfo(
+                name=name,
+                serial=None,
+                adb_path=bundled_adb_path(self.bin_path),
+                index=index,
+                console_path=self.bin_path or "",
+            ),
+            # 与 probe_state() 同一个判据（两个 PID 都在），不用第 4 列的运行
+            # 状态字符串 —— 那个会把「界面进程死了但 VBox 还活着」的半启动
+            # 报成运行中。
+            status=DeviceStatus.BOOT if pids.is_running() else DeviceStatus.STOP,
+            android_version=None,
+        )
 
     def probe_state(self, idx: int | str) -> DeviceStatus:
         """雷电不给状态字符串，只能看两个进程在不在。"""

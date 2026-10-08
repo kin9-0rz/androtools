@@ -1,10 +1,25 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 from typing import NamedTuple
 
 from androtools.cmd import CMD
 from androtools.cmd.result import CmdResult
+
+
+def bundled_adb_path(console_path: str | None) -> str:
+    """厂商自带的那一份 adb —— 就在它自己的 Console 旁边。
+
+    用厂商配套的 adb，是为了和它自己的 Console 版本对上。目录布局换了或路径
+    拿不到时退回 PATH 上的 adb，不抛异常：这一层不该因为一个路径判断失败而
+    让整个设备不可用。
+    """
+    if console_path:
+        sibling = Path(console_path).parent / "adb.exe"
+        if sibling.is_file():
+            return str(sibling)
+    return "adb"
 
 
 class Pids(NamedTuple):
@@ -90,6 +105,61 @@ class DeviceStatus(Enum):
         raise Exception("未知状态")
 
 
+@dataclass(frozen=True, eq=False)
+class EmulatorInstance:
+    """某一刻观测到的一台模拟器实例：身份 + 运行状态 + Android 版本。
+
+    与 EmulatorInfo 的分工：EmulatorInfo 是**身份**，是构造一个 session 所需的
+    输入，字段稳定；EmulatorInstance 是**观测快照**，status 和 android_version
+    随实例运行而变化，所以它是 frozen 的 —— 要新的状态就重新 list 一次，而不是
+    在这个对象上改。
+
+    它是「起点」：调用方先 `list_instances()` 拿到有哪些实例、哪台在跑，再拿其中
+    一个去 `play()` 成可操作的 session。
+    """
+
+    info: EmulatorInfo
+    status: DeviceStatus
+    android_version: str | None = None
+    """Android 版本，如 "12"。拿不到就是 None（雷电的 CLI 不报它）。"""
+
+    def _identity(self) -> tuple:
+        return (self.info.index, self.info.console_path, self.status, self.android_version)
+
+    def __eq__(self, other: object) -> bool:
+        """相等 = 同一台实例（index + console_path）处在同一个观测状态。
+
+        不比 serial：MuMu 重启后 adb 端口会变，那不该让「同一台实例」变成两台。
+        也不整个比 EmulatorInfo —— 它的 __eq__ 把 serial 算进去了。
+        """
+        if not isinstance(other, EmulatorInstance):
+            return NotImplemented
+        return self._identity() == other._identity()
+
+    def __hash__(self) -> int:
+        return hash(self._identity())
+
+    @property
+    def index(self) -> str:
+        return self.info.index
+
+    @property
+    def name(self) -> str:
+        return self.info.name
+
+    @property
+    def serial(self) -> str | None:
+        return self.info.serial
+
+    @property
+    def is_running(self) -> bool:
+        """进程在不在。注意它不回答「能不能 adb」—— 那要 session 细分。"""
+        return self.status is not DeviceStatus.STOP
+
+    def __repr__(self) -> str:
+        return f"{self.info!r} [{self.status.name}]"
+
+
 class EmulatorConsole(CMD, ABC):
     """模拟器控制台：启动、关闭、重启模拟器，探测它起来没有，以及属性和应用操作。
 
@@ -101,8 +171,10 @@ class EmulatorConsole(CMD, ABC):
     差别很大 —— 雷电要靠两个进程 PID 推断，MuMu 直接给进程状态
     —— 所以 interface 上暴露的是状态，不是 PID。Pids 只在具体 console 内部使用。
 
-    这里只放 session 真正需要的能力。厂商特有的（locate、setprop、install_app 等）
-    留在具体 console 上，不进 interface。
+    这里只放 session 真正需要的能力，加上「起点」——列出有哪些实例。厂商特有的
+    （locate、setprop、install_app 等）留在具体 console 上，不进 interface。
+    厂商给不出来的能力一律是**软成员**（默认抛 NotImplementedError），不是
+    abstract：第三方实现这个 interface 时才不会因为新加一个方法就 TypeError。
     """
 
     @abstractmethod
@@ -144,6 +216,15 @@ class EmulatorConsole(CMD, ABC):
         从 0 往上试，而 index 段里可能有空洞。
         """
         raise NotImplementedError(f"{type(self).__name__} 没有实现 instances()")
+
+    def list_instances(self) -> list[EmulatorInstance]:
+        """这个厂商现在有哪些实例 —— **包含没在跑的那些**。
+
+        与 instances() 的区别：instances() 只给编号，是反查流程的内部需要；
+        list_instances() 给带运行状态与版本的完整快照，是使用者操作的**起点**。
+        它不该依赖 adb —— 一台纯 Console 调用就该回答「有几台、哪台在跑」。
+        """
+        raise NotImplementedError(f"{type(self).__name__} 没有实现 list_instances()")
 
     def fingerprint(self, idx: int | str) -> str | None:
         """这个实例在 adb 上可被认出来的唯一值；拿不出就返回 None。

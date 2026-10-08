@@ -14,7 +14,7 @@ import pytest
 from helpers import make_emulator_info
 from androtools.cmd.result import CmdResult
 from androtools.core.constants import KeyEvent
-from androtools.core.device import EmulatorConsole, DeviceStatus
+from androtools.core.device import EmulatorConsole, DeviceStatus, EmulatorInfo, EmulatorInstance
 from androtools.core.mumu import MumuConsole, MumuPlayer
 from androtools.testing import FakeADB
 
@@ -43,6 +43,9 @@ STOPPED = {
 # 实测：MuMuManager.exe info -v <不存在的索引>
 NO_SUCH_INSTANCE = {"errcode": -21, "errmsg": "Missing param <vmindex> error !!!"}
 
+# 实测：MuMuManager.exe info -v all —— 键是字符串形式的 index，身下的值与 info -v <idx> 一样
+ALL = {"0": STOPPED, "1": RUNNING}
+
 # 实测：实例未启动时 sh 子命令的输出 —— 是 JSON 错误块，不是属性值
 VM_NOT_RUNNING = {
     "errcode": -201,
@@ -54,6 +57,9 @@ class ScriptedMumuConsole(MumuConsole):
     """把 MuMuManager 的输出按命令脚本化，其余全部走真实实现。"""
 
     def __init__(self, responses: dict[str, object]):
+        # 不调 super().__init__：那会去 shutil.which 找 MuMuManager.exe。
+        # 但 bin_path 得给个确定的值 —— list_instances() 要用它拼 EmulatorInfo。
+        self.bin_path = "MuMuManager.exe"
         self.responses = responses
         self.calls: list[list[str]] = []
 
@@ -69,6 +75,7 @@ class ScriptedMumuConsole(MumuConsole):
 
 def console(**overrides) -> ScriptedMumuConsole:
     responses: dict[str, object] = {
+        "info -v all": ALL,
         "info -v 1": RUNNING,
         "info -v 0": STOPPED,
         "info -v 9": NO_SUCH_INSTANCE,
@@ -346,3 +353,86 @@ def test_session_answers_is_boot_through_the_console():
 
     assert player.is_boot() is True
     assert player.index == "1"
+
+
+# --------------------------------------------------------------------------- #
+# list_instances —— 起点：有几台、哪台在跑
+# --------------------------------------------------------------------------- #
+
+
+def test_list_instances_reports_every_instance_including_the_stopped_one():
+    """原来的问题就是「知道有几个设备、索引多少、是否在运行」。"""
+    instances = console().list_instances()
+
+    assert [i.index for i in instances] == ["0", "1"]
+    assert [i.name for i in instances] == ["A15", "A12"]
+
+
+def test_list_instances_tells_the_running_one_from_the_stopped_one():
+    by_index = {i.index: i for i in console().list_instances()}
+
+    assert by_index["1"].status == DeviceStatus.BOOT
+    assert by_index["1"].is_running is True
+    assert by_index["0"].status == DeviceStatus.STOP
+    assert by_index["0"].is_running is False
+
+
+def test_list_instances_gives_an_adb_address_only_for_running_instances():
+    """未启动时 MuMu 把 adb_host_ip / adb_port 整个键省略了。
+
+    回归风险：拿 16384 + 2*index 推算端口 —— 实测 index 0 占 16384、index 1 是 16416，
+    那个公式在本机就是错的。
+    """
+    by_index = {i.index: i for i in console().list_instances()}
+
+    assert by_index["1"].serial == "127.0.0.1:16416"
+    assert by_index["0"].serial is None
+
+
+def test_list_instances_normalises_the_android_version():
+    """MuMu 报 "12.0"，而 Device.android_version 读的是 "12" —— 统一成后者。"""
+    by_index = {i.index: i for i in console().list_instances()}
+
+    assert by_index["1"].android_version == "12"
+    assert by_index["0"].android_version == "15"
+
+
+def test_list_instances_is_one_console_call_and_no_adb():
+    """列实例不该逐 index 再问一次，也不该碰 adb。"""
+    mumu = console()
+
+    mumu.list_instances()
+
+    assert mumu.calls == [["info", "-v", "all"]]
+
+
+def test_list_instances_sorts_by_numeric_index():
+    """`info -v all` 的键是字符串，不排序的话 "10" 会跑到 "9" 前面。"""
+    mumu = console(**{"info -v all": {"10": STOPPED, "9": RUNNING}})
+
+    assert [i.index for i in mumu.list_instances()] == ["9", "10"]
+
+
+def test_list_instances_carries_what_a_player_needs_to_be_built():
+    """快照里的 info 必须是可直接拿去构造 session 的那五个字段。"""
+    instance = console().list_instances()[0]
+
+    assert isinstance(instance.info, EmulatorInfo)
+    assert instance.info.console_path == "MuMuManager.exe"
+    assert instance.info.index == "0"
+    assert instance.info.adb_path
+
+
+def test_emulator_instance_equality_survives_a_changed_adb_port():
+    """MuMu 重启后端口会变，那不该让「同一台实例」变成两台。"""
+    before = EmulatorInstance(
+        EmulatorInfo("A12", None, "adb", "1", "MuMuManager.exe"),
+        DeviceStatus.STOP,
+    )
+    after = EmulatorInstance(
+        EmulatorInfo("A12", "127.0.0.1:16416", "adb", "1", "MuMuManager.exe"),
+        DeviceStatus.STOP,
+    )
+
+    assert before == after
+    assert len({before, after}) == 1

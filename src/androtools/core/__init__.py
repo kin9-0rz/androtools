@@ -4,6 +4,7 @@ from androtools.core.device import (
     DeviceInfo,
     DeviceStatus,
     EmulatorInfo,
+    EmulatorInstance,
     Pids,
 )
 from androtools.core.identity import DiscoveredDevice, InstanceIdentity, discover, identify
@@ -20,6 +21,7 @@ __all__ = [
     "DeviceStatus",
     "Device",
     "EmulatorInfo",
+    "EmulatorInstance",
     "EmulatorSession",
     "DiscoveredDevice",
     "InstanceIdentity",
