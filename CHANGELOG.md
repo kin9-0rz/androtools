@@ -2,7 +2,10 @@
 
 本文件记录面向使用者的破坏性变更。内部重构（seam 抽取、测试补充）不在此列。
 
-## 未发布
+## 2.2.0
+
+`EmulatorConsole` 从「开关机 + adb 做不到的事」扩展成四种能力：实例编目、配置读写、
+设备信息模拟、通路与逃生舱。14 个新成员都是软成员，所以这是个小版本（见「行为变更」）。
 
 ### 新增
 
@@ -81,9 +84,34 @@
   （非零也不抛，看 `result.has_error()` / `result.exit_code`）；没有 `encoding=`
   通道，用的是 adapter 声明的厂商默认编码（MuMu 是 UTF-8，雷电是 GBK）。
 
-上面这些新增成员里除了 `run()`，其余都是**软成员**（带默认实现，抛
-`NotImplementedError`），所以已有的自定义 Console 不会因此无法实例化；厂商给
-不出的能力一律抛 `NotImplementedError`，不静默失败、不返回假值。
+### 新增（interface）
+
+`EmulatorConsole` 上新增 15 个成员：
+
+- 实例编目：`list_instances()`、`create()`、`clone()`、`delete()`、`rename()`
+- 配置读写：`get_settings()`、`set_settings()`、`set_resolution()`、`set_cpu()`、
+  `set_memory()`、`set_root()`
+- 设备信息模拟：`get_simulation()`、`set_simulation()`
+- 通路与逃生舱：`play()`、`run()`
+
+除了 `run()`，其余 14 个都是**软成员**（带默认实现，默认抛 `NotImplementedError`），
+所以已有的自定义 Console **不会**因此无法实例化；厂商给不出的能力一律抛
+`NotImplementedError`，不静默失败、不返回假值。
+
+但「不报错」不等于「能用」：第三方 Console 子类想拿到这些能力，得自己实现对应的
+方法。
+
+### 行为变更
+
+- **`EmulatorConsole.run(*args)` 覆盖了继承来的 `CMD.run(is_reset=True)`。** 后者是
+  「先 `append_args()` 攒参数、再 `run()` 执行」的两步协议，而 Console 要的是
+  「给什么跑什么」的一步调用 —— 签名不相容是故意的。本仓库里没有任何地方对 Console
+  用旧签名（`append_args()` / `run()` 只被 Android SDK 侧的 `AvdManager` 与
+  `Emulator` 使用），但自定义 Console 子类若依赖旧协议，改用 `_run([...])`。
+
+  这也是本版为什么是 **2.2.0 而不是 3.0.0**：14 个新成员都是软成员，已有子类不会因
+  新增方法而无法实例化，对 2.1.0 兼容；按约定，签名冲突列为一个小节的「行为变更」
+  而非大版本，因为它只影响一个几乎没人覆盖的方法。
 
 ### 修复
 

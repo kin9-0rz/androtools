@@ -174,6 +174,107 @@ tcpdump.stop_capture()
 tcpdump.pull_pcap_file(r"D:\capture")
 ```
 
+## 日常操作：清单 → 会话 → 配置
+
+上面的例子都是「我已经知道要操作哪一台」。日常用起来更常见的是反过来：先问**现在有
+几台、哪台在跑**，挑一台动手，再改它的配置。下面每一节的输出都是在本机跑出来的。
+
+### 1. 列出实例
+
+`list_instances()` 一次调用问出全部实例，**包括没启动的**，而且不依赖 adb：
+
+```python
+from androtools.core import MumuConsole
+
+console = MumuConsole(r"D:\Program Files\Netease\MuMu\nx_main\MuMuManager.exe")
+
+for i in console.list_instances():
+    print(f"{i.index}  {i.name}  {i.status.name}  {i.serial or '-'}  android {i.android_version}")
+```
+
+```
+0  A15  STOP  -                  android 15
+1  A12  BOOT  127.0.0.1:16416    android 12
+```
+
+`status` 只区分 `STOP`（进程根本没起来）和 `BOOT`（起来了）—— 「能不能真的 adb 交互」
+是 session 的问题。`serial` 只有运行中的实例才有：MuMu 的 adb 端口是启动时才分配的，
+**不要自己按 index 算**（见上面「多开模拟器时 serial 会被认错」）。
+
+拿到的是 `EmulatorInstance` —— 某一刻的**快照**，要新状态就再列一次。它的相等性不看
+serial，所以重启一次不会让同一台机器变成两台。
+
+### 2. 从清单到可操作的 session
+
+`play()` 是清单的下一站，调用方不必知道厂商的 session 类叫什么：
+
+```python
+instance = console.list_instances()[1]
+player = console.play(instance)      # MumuPlayer；只构造，不发任何命令
+print(player.ensure_ready())         # True —— 启动并等到开机完成
+player.shell.tap(100, 200)
+```
+
+`play()` 本身不做 IO：serial 的确定、`adb connect` 都属于 session 的启动流程
+（`launch()` / `ensure_connected()`）。已经在跑的实例上 `ensure_ready()` 只是确认它
+就绪。
+
+### 3. 改配置
+
+常用项有中立动词，不用记厂商方言：
+
+```python
+idx = instance.index
+console.set_resolution(idx, 540, 960, 240)
+console.set_cpu(idx, 2)
+console.set_root(idx, True)
+
+console.get_settings(idx)["resolution_width"]   # '540.000000'
+```
+
+内存的单位统一是 **MB 整数**（MuMu 内部用 GB、雷电用 MB，adapter 自己换算），CPU 是
+核数。越界值抛 `ValueError` 且**不下发命令** —— 两家在这件事上都会静默骗你：实测
+MuMu 把超范围的宽高夹到边界，雷电把不接受的宽高整个丢掉，两次都是成功退出码。
+
+**写下去的值在实例下次启动时生效，本库不替你重启。** 实测两家都能在实例运行中写，
+所以故意**不做**「停机 → 写 → 恢复运行」的编排：为了改个配置白关一次别人的模拟器
+（重启 30s+、丢掉正在跑的东西）是比「下次启动才生效」更坏的意外。想立刻看到效果就
+自己 `reboot_device(idx)`。
+
+### 4. 改「对外自称的设备信息」
+
+模拟（Simulation）的那五个字段（`android_id` / `imei` / `mac` / `model` / `brand`）：
+
+```python
+console.set_simulation(idx, "imei", "861234567890123")
+console.get_simulation(idx)["imei"]     # '861234567890123'
+```
+
+key 不是那五个之一就抛 `ValueError` —— 两家对**任何** key 名都不报错，不拦就是静默
+成功。值**原样透传**：厂商不校验，本库也不替它猜（厂商自己那套 `"auto"` 写法照传）。
+
+### 5. 逃生舱
+
+中立动词没包住的长尾（`sort`、`control tool func`、将来新增的子命令）直接透传：
+
+```python
+result = console.run("version")
+print(result.output.strip())
+```
+
+```
+{
+  "version": "6.8.2.0"
+}
+```
+
+`run()` **不做任何解析**（要 JSON 自己 parse），也**不看返回码** —— 非零不会抛，自己
+看 `result.has_error()` / `result.exit_code`。输出按 adapter 声明的厂商编码解（MuMu
+是 UTF-8、雷电是 GBK），与本机 locale 无关。
+
+雷电的 `LDConsole` 有同一套方法。两个厂商的差异收在 adapter 后面：雷电读设置是直接
+解析它自己的实例配置文件（它没有读的 CLI），而 MuMu 是一条命令拿到整份 JSON。
+
 ## 设计
 
 ```
@@ -182,7 +283,14 @@ Device                 真机。serial、状态判定、超时探测、应用操
    └─ ConsoleSession   雷电、MuMu
 
 AndroidShell           adb 命令字典（shallow：省的是打字，不是藏复杂度）
-EmulatorConsole        厂商 CLI 的方言止步于此（probe_state / getprop / run_app / …）
+
+EmulatorConsole        厂商 CLI 的方言止步于此。四个面：
+                        · 会话必需   probe_state / getprop / run_app / kill_app / …
+                        · 实例编目   list_instances / create / clone / delete / rename
+                        · 配置读写   get_settings / set_settings / set_resolution /
+                                     set_cpu / set_memory / set_root /
+                                     get_simulation / set_simulation
+                        · 通路       play() 造 session，run() 透传长尾
 ```
 
 两个 seam 都可以替换，所以生命周期逻辑**不需要真机就能测**：
